@@ -79,6 +79,10 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         [System.DirectoryServices.Protocols.SearchResultAttributeCollection[]]
         $SearchResultAttributeCollection
     )
+    # TODO SecurityIdentifier is not supported on Linux: 
+    # "Windows Principal functionality is not supported on this platform."
+    # Try to at least make sure it's returned in a format that can be 
+    # converted to a SID on Windows.
     foreach ($srac in $SearchResultAttributeCollection) {
         $attributeObject = [PSCustomObject]@{}
         foreach ($attributeName in ($srac.Keys | Sort-Object)) {
@@ -125,11 +129,12 @@ function Get-LDAPObject
         [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
-    if (-not $SearchTerm -and -not $ReturnAttribute) {
+    if (-not $SearchTerm) {
         Write-Host "Usage: LDAPGet SearchTerm(s)"
         Write-Host "Usage: LDAPGet SearchTerm(s) ReturnAttribute(s)"
         Write-Host "     SearchTerm: Term to find objects by"
         Write-Host "ReturnAttribute: Which attributes to return per object"
+        return
     }
 
     foreach ($sTerm in $SearchTerm) {
@@ -145,7 +150,7 @@ function Get-LDAPObject
         $filter += ')'
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
             Convert-SearchResultAttributeCollectionToPSCustomObject -SearchResultAttributeCollection $_.Attributes
-            $_
+            #$_
         }
     }
 }
@@ -164,6 +169,7 @@ function Get-LDAPObjectByAttribute
         Write-Host "     SearchTerm: Term to find objects by"
         Write-Host "SearchAttribute: Attribute in which to look for SearchTerm"
         Write-Host "ReturnAttribute: Which attributes to return per object"
+        return
     }
 }
 
@@ -175,11 +181,23 @@ function Set-LDAPObjectAttributeValue
         [Parameter(Mandatory=$false)][String]$Value
     )
 
-    if (-not $Filter -and -not $Attribute) {
+    if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
         Write-Host "Usage: LDAPSet SearchTerm(s) Attribute(s) Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to set to the attribute"
+        return
+    }
+
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -gt 0) {
+        Write-Host "About to set '$Attribute' to '$Value' on the following objects:" `
+            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+        }
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+            -ForegroundColor Yellow
     }
 }
 
@@ -196,6 +214,7 @@ function Add-LDAPObjectAttributeValue
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to add to the attribute"
+        return
     }
 }
 
@@ -213,6 +232,7 @@ function Remove-LDAPObjectAttributeValue
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to remove all value(s) from"
         Write-Host "     Value: Which values to remove from attribute, default (not passed) is all"
+        return
     }
 }
 
@@ -227,6 +247,7 @@ function Add-LDAPGroupMember
         Write-Host "Usage: LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
+        return
     }
 }
 
@@ -241,12 +262,13 @@ function Remove-LDAPGroupMember
         Write-Host "Usage: LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
+        return
     }
 }
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
 Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
-Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttribute
+Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
 Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttribute
 Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttribute
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
