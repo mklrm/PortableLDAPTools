@@ -84,7 +84,13 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         foreach ($attributeName in ($srac.Keys | Sort-Object)) {
             if ($attributeName -eq 'objectsid') {
                 $values = $srac[$attributeName][0]
-                $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $values, 0
+                if ($values -is [string]) { # NOTE Apparently some objects return 
+                                            # the sid differently, such as the 
+                                            # Active Directory Administrators group
+                    $values = $srac[$attributeName].GetValues('Byte[]')[0]
+                }
+                $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier `
+                    -ArgumentList $values, 0
             } elseif ($attributeName -eq 'objectguid') {
                 $values = $srac[$attributeName][0]
                 $values = New-Object -TypeName System.Guid -ArgumentList @(,$values)
