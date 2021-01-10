@@ -56,9 +56,6 @@ function Invoke-LDAPQuery
     $ldapServer.SendRequest($searchRequest)
 }
 
-# TODO Access results this way:
-# $searchResults.Entries[0].attributes['sAMAccountName'].GetValues('string')
-
 function Set-LDAPObject
 {
     Param(
@@ -75,6 +72,40 @@ function Set-LDAPObject
     $ldapServer.SendRequest($modifyRequest)
 }
 
+function Convert-SearchResultAttributeCollectionToPSCustomObject
+{
+    Param(
+        [Parameter(Mandatory=$false)]
+        [System.DirectoryServices.Protocols.SearchResultAttributeCollection[]]
+        $SearchResultAttributeCollection
+    )
+    foreach ($srac in $SearchResultAttributeCollection) {
+        $attributeObject = [PSCustomObject]@{}
+        foreach ($attributeName in ($srac.Keys | Sort-Object)) {
+            if ($attributeName -eq 'objectsid') {
+                $values = $srac[$attributeName][0]
+                $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $values, 0
+            } elseif ($attributeName -eq 'objectguid') {
+                $values = $srac[$attributeName][0]
+                $values = New-Object -TypeName System.Guid -ArgumentList @(,$values)
+            } else {
+                $values = $srac[$attributeName].GetValues('string')
+                $values = foreach ($value in $values) {
+                    if ($value -match '\.0Z$') {
+                        $value = [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
+                    } elseif ($attributeName -eq 'pwdlastset') {
+                        $value = [DateTime]::FromFileTime($value)
+                    }
+                    $value
+                }
+            }
+            $attributeObject | Add-Member -MemberType NoteProperty `
+                -Name $attributeName -Value $values
+        }
+        $attributeObject
+    }
+}
+
 # NOTE ALL OF THE BELOW FUNCTIONS ARE MEANT TO BE USED INTERACTIVELY, NOT IN A SCRIPT.
 # They make fuzzy searches so objects found and selected for modification might not 
 # be what you'd expect.
@@ -88,11 +119,28 @@ function Get-LDAPObject
         [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
-    if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADGet SearchTerm(s)"
-        Write-Host "Usage: PADGet SearchTerm(s) ReturnAttribute(s)"
+    if (-not $SearchTerm -and -not $ReturnAttribute) {
+        Write-Host "Usage: LDAPGet SearchTerm(s)"
+        Write-Host "Usage: LDAPGet SearchTerm(s) ReturnAttribute(s)"
         Write-Host "     SearchTerm: Term to find objects by"
         Write-Host "ReturnAttribute: Which attributes to return per object"
+    }
+
+    foreach ($sTerm in $SearchTerm) {
+        $filter = "(|(cn=$sTerm)(Name=$sTerm)(sAMAccountName=$sTerm)"
+        if ($sTerm -match '\s') {
+            $sTermSplit = $sTerm -split '\s'
+            if ($sTermSplit.Count -eq 2) {
+                $sTerm1, $sTerm2 = $sTermSplit[0..1]
+                $filter += "(&(Givenname=$sTerm1)(SurName=$sTerm2))(&(Givenname=$sTerm2)(Surname=$sterm1))"
+            }
+            # TODO Add more queries
+        }
+        $filter += ')'
+        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+            Convert-SearchResultAttributeCollectionToPSCustomObject -SearchResultAttributeCollection $_.Attributes
+            $_
+        }
     }
 }
 
@@ -105,8 +153,8 @@ function Get-LDAPObjectByAttribute
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADGet SearchTerm(s) SearchAttribute(s)"
-        Write-Host "Usage: PADGet SearchTerm(s) SearchAttribute(s) ReturnAttribute(s)"
+        Write-Host "Usage: LDAPGet SearchTerm(s) SearchAttribute(s)"
+        Write-Host "Usage: LDAPGet SearchTerm(s) SearchAttribute(s) ReturnAttribute(s)"
         Write-Host "     SearchTerm: Term to find objects by"
         Write-Host "SearchAttribute: Attribute in which to look for SearchTerm"
         Write-Host "ReturnAttribute: Which attributes to return per object"
@@ -122,7 +170,7 @@ function Set-LDAPObjectAttributeValue
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADSet SearchTerm(s) Attribute(s) Value"
+        Write-Host "Usage: LDAPSet SearchTerm(s) Attribute(s) Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to set to the attribute"
@@ -138,7 +186,7 @@ function Add-LDAPObjectAttributeValue
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADAdd SearchTerm(s) Attribute(s) Value"
+        Write-Host "Usage: LDAPAdd SearchTerm(s) Attribute(s) Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to add to the attribute"
@@ -154,8 +202,8 @@ function Remove-LDAPObjectAttributeValue
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADRem SearchTerm(s) Attribute(s)"
-        Write-Host "Usage: PADRem SearchTerm(s) Attribute(s) Value(s)"
+        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
+        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s) Value(s)"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to remove all value(s) from"
         Write-Host "     Value: Which values to remove from attribute, default (not passed) is all"
@@ -170,7 +218,7 @@ function Add-LDAPGroupMember
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADAddMember SearchTermGroup(s) SearchTermMember(s)"
+        Write-Host "Usage: LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
     }
@@ -184,17 +232,17 @@ function Remove-LDAPGroupMember
     )
 
     if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: PADRemMember SearchTermGroup(s) SearchTermMember(s)"
+        Write-Host "Usage: LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
     }
 }
 
-Set-Alias -Name PADGet -Value Get-LDAPObject
-Set-Alias -Name PADGetByAttribute -Value Get-LDAPObjectByAttribute
-Set-Alias -Name PADSet -Value Set-LDAPObjectAttribute
-Set-Alias -Name PADAdd -Value Add-LDAPObjectAttribute
-Set-Alias -Name PADRem -Value Remove-LDAPObjectAttribute
-Set-Alias -Name PADAddMember -Value Add-LDAPGroupMember
-Set-Alias -Name PADRemMember -Value Remove-LDAPGroupMember
+Set-Alias -Name LDAPGet -Value Get-LDAPObject
+Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
+Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttribute
+Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttribute
+Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttribute
+Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
+Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
 
