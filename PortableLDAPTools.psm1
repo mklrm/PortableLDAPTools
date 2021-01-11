@@ -306,11 +306,11 @@ function Add-LDAPGroupMember
     $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
-        Write-Host "About to add the following members to the following groups:" `
+        Write-Host "About to add group members:" `
             -ForegroundColor Yellow
         foreach ($ldapGroup in $ldapGroupList) {
             foreach ($ldapMember in $ldapMemberList) {
-                Write-Host "Adding to group $($ldapGroup.Name): $($ldapMember.Name)" `
+                Write-Host "    $($ldapGroup.Name): $($ldapMember.Name)" `
                     -ForegroundColor Green
             }
         }
