@@ -12,9 +12,11 @@ $ldapServerName = $config.ldapServerName
 $ldapPort = $config.ldapPort
 $userDomain = $config.userDomain
 $userName = $config.userName
-$userPassword = $config.userPassword
 $authType = $config.authType
 $searchbase = $config.searchbase
+
+Write-Host "Enter password for user $userDomain\$($userName):"
+$userPassword = Read-Host -MaskInput
 
 if ($authType -eq 'Basic') {
     $credential = New-Object `
@@ -79,22 +81,21 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         [System.DirectoryServices.Protocols.SearchResultAttributeCollection[]]
         $SearchResultAttributeCollection
     )
-    # TODO SecurityIdentifier is not supported on Linux: 
-    # "Windows Principal functionality is not supported on this platform."
-    # Try to at least make sure it's returned in a format that can be 
-    # converted to a SID on Windows.
     foreach ($srac in $SearchResultAttributeCollection) {
         $attributeObject = [PSCustomObject]@{}
         foreach ($attributeName in ($srac.Keys | Sort-Object)) {
             if ($attributeName -eq 'objectsid') {
                 $values = $srac[$attributeName][0]
-                if ($values -is [string]) { # NOTE Apparently some objects return 
-                                            # the sid differently, such as the 
-                                            # Active Directory Administrators group
-                    $values = $srac[$attributeName].GetValues('Byte[]')[0]
+                # NOTE Only Windows is familiar with its SecurityIdentifiers
+                if ($PSVersionTable.OS -match 'Windows') {
+                    if ($values -is [string]) { # NOTE Apparently some objects return 
+                                                # the sid differently, such as the 
+                                                # Active Directory Administrators group
+                        $values = $srac[$attributeName].GetValues('Byte[]')[0]
+                    }
+                    $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier `
+                        -ArgumentList $values, 0
                 }
-                $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier `
-                    -ArgumentList $values, 0
             } elseif ($attributeName -eq 'objectguid') {
                 $values = $srac[$attributeName][0]
                 $values = New-Object -TypeName System.Guid -ArgumentList @(,$values)
@@ -122,6 +123,37 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
 # TODO Add a warning to the command help texts too
 # TODO Show what's about to be modified and let user confirm before taking action
 
+function Get-LDAPFuzzyQueryFilter
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+        [Parameter(Mandatory=$false)][String]$ObjectClass
+    )
+
+    $filters = @()
+    foreach ($sTerm in $SearchTerm) {
+        $filter = ''
+        if ($ObjectClass) {
+            $filter += "(&(objectClass=$ObjectClass)"
+        }
+        $filter += "(|(cn=$sTerm)(Name=$sTerm)(sAMAccountName=$sTerm)(DistinguishedName=$sTerm)"
+        if ($sTerm -match '\s') {
+            $sTermSplit = $sTerm -split '\s'
+            if ($sTermSplit.Count -eq 2) {
+                $sTerm1, $sTerm2 = $sTermSplit[0..1]
+                $filter += "(&(Givenname=$sTerm1)(SurName=$sTerm2))(&(Givenname=$sTerm2)(Surname=$sterm1))"
+            }
+            # TODO Add more queries
+        }
+        $filter += ')'
+        if ($ObjectClass) {
+            $filter += ')'
+        }
+        $filters += $filter
+    }
+    return $filters
+}
+
 function Get-LDAPObject
 {
     Param(
@@ -137,19 +169,10 @@ function Get-LDAPObject
         return
     }
 
-    foreach ($sTerm in $SearchTerm) {
-        $filter = "(|(cn=$sTerm)(Name=$sTerm)(sAMAccountName=$sTerm)"
-        if ($sTerm -match '\s') {
-            $sTermSplit = $sTerm -split '\s'
-            if ($sTermSplit.Count -eq 2) {
-                $sTerm1, $sTerm2 = $sTermSplit[0..1]
-                $filter += "(&(Givenname=$sTerm1)(SurName=$sTerm2))(&(Givenname=$sTerm2)(Surname=$sterm1))"
-            }
-            # TODO Add more queries
-        }
-        $filter += ')'
+    foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            Convert-SearchResultAttributeCollectionToPSCustomObject -SearchResultAttributeCollection $_.Attributes
+            Convert-SearchResultAttributeCollectionToPSCustomObject `
+                -SearchResultAttributeCollection $_.Attributes
             #$_
         }
     }
@@ -209,12 +232,23 @@ function Add-LDAPObjectAttributeValue
         [Parameter(Mandatory=$false)][String]$Value
     )
 
-    if (-not $Filter -and -not $Attribute) {
+    if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
         Write-Host "Usage: LDAPAdd SearchTerm(s) Attribute(s) Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to add to the attribute"
         return
+    }
+
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -gt 0) {
+        Write-Host "About to add '$Value' to '$Attribute' on the following objects:" `
+            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+        }
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+            -ForegroundColor Yellow
     }
 }
 
@@ -226,13 +260,24 @@ function Remove-LDAPObjectAttributeValue
         [Parameter(Mandatory=$false)][String[]]$Value
     )
 
-    if (-not $Filter -and -not $Attribute) {
+    if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
         Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
         Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s) Value(s)"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to remove all value(s) from"
         Write-Host "     Value: Which values to remove from attribute, default (not passed) is all"
         return
+    }
+
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -gt 0) {
+        Write-Host "About to remove '$Value' from '$Attribute' on the following objects:" `
+            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+        }
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+            -ForegroundColor Yellow
     }
 }
 
@@ -243,11 +288,40 @@ function Add-LDAPGroupMember
         [Parameter(Mandatory=$false)][String[]]$SearchTermMember
     )
 
-    if (-not $Filter -and -not $Attribute) {
+    if (-not $SearchTermGroup -or -not $SearchTermMember) {
         Write-Host "Usage: LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
         return
+    }
+
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
+    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
+        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+            Convert-SearchResultAttributeCollectionToPSCustomObject `
+                -SearchResultAttributeCollection $_.Attributes
+        }
+    }
+
+    $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
+
+    if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
+        Write-Host "About to add the following members to the following groups:" `
+            -ForegroundColor Yellow
+        foreach ($ldapGroup in $ldapGroupList) {
+            foreach ($ldapMember in $ldapMemberList) {
+                Write-Host "Adding to group $($ldapGroup.Name): $($ldapMember.Name)" `
+                    -ForegroundColor Green
+            }
+        }
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+            -ForegroundColor Yellow
+    } else {
+        if ($ldapGroupList.Count -gt 0) {
+            Write-Host "Found no members to add."
+        } else {
+            Write-Host "Found no groups to add members to."
+        }
     }
 }
 
