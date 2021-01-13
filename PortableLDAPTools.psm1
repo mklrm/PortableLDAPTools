@@ -82,12 +82,19 @@ function ConvertTo-CanonicalName
     )
     foreach ($dn in $DistinguishedName) {
         $tmp = $dn -split ','
-        $cn = ($tmp | Where-Object { $_ -match '^cn=' }) -replace '^cn='
+        $cnList = ($tmp | Where-Object { $_ -match '^cn=' }) -replace '^cn='
         $ouList = ($tmp | Where-Object { $_ -match '^ou=' }) -replace '^ou='
         $dcList = ($tmp | Where-Object { $_ -match '^dc=' }) -replace '^dc='
         $CanonicalName = "$($dcList -join '.')/"
         $CanonicalName += $ouList[($ouList.Count + 1)..0] -join '/'
-        $CanonicalName += "/$($cn)"
+        if ($cnList.Count -eq 1) {
+            $CanonicalName += "/$($cnList)"
+        } elseif ($cnList.Count -gt 1) {
+            $CanonicalName += $cnList[($cnList.Count + 1)..0] -join '/'
+        }
+        if ($CanonicalName -match '/$') {
+            $CanonicalName = $CanonicalName -replace '/$'
+        }
         $CanonicalName
     }
 }
@@ -238,9 +245,9 @@ function Set-LDAPObjectAttributeValue
         Write-Host "About to set '$Attribute' to '$Value' on the following objects:" `
             -ForegroundColor Yellow
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+            Write-Host $ldapObject.canonicalname -ForegroundColor Green
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -266,9 +273,9 @@ function Add-LDAPObjectAttributeValue
         Write-Host "About to add '$Value' to '$Attribute' on the following objects:" `
             -ForegroundColor Yellow
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+            Write-Host $ldapObject.canonicalname -ForegroundColor Green
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -297,7 +304,7 @@ function Remove-LDAPObjectAttributeValue
         foreach ($ldapObject in $ldapObjectList) {
             Write-Host $ldapObject.distinguishedname -ForegroundColor Green
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -331,11 +338,11 @@ function Add-LDAPGroupMember
             -ForegroundColor Yellow
         foreach ($ldapGroup in $ldapGroupList) {
             foreach ($ldapMember in $ldapMemberList) {
-                Write-Host "    $($ldapGroup.Name): $($ldapMember.Name)" `
+                Write-Host "    $($ldapGroup.canonicalname): $($ldapMember.canonicalname)" `
                     -ForegroundColor Green
             }
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     } else {
         if ($ldapGroupList.Count -gt 0) {
