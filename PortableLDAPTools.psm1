@@ -74,6 +74,24 @@ function Set-LDAPObject
     $ldapServer.SendRequest($modifyRequest)
 }
 
+function ConvertTo-CanonicalName
+{
+    Param(
+        [Parameter(Mandatory=$true)][String[]]$DistinguishedName
+        
+    )
+    foreach ($dn in $DistinguishedName) {
+        $tmp = $dn -split ','
+        $cn = ($tmp | Where-Object { $_ -match '^cn=' }) -replace '^cn='
+        $ouList = ($tmp | Where-Object { $_ -match '^ou=' }) -replace '^ou='
+        $dcList = ($tmp | Where-Object { $_ -match '^dc=' }) -replace '^dc='
+        $CanonicalName = "$($dcList -join '.')/"
+        $CanonicalName += $ouList[($ouList.Count + 1)..0] -join '/'
+        $CanonicalName += "/$($cn)"
+        $CanonicalName
+    }
+}
+
 function Convert-SearchResultAttributeCollectionToPSCustomObject
 {
     Param(
@@ -83,8 +101,13 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
     )
     foreach ($srac in $SearchResultAttributeCollection) {
         $attributeObject = [PSCustomObject]@{}
-        foreach ($attributeName in ($srac.Keys | Sort-Object)) {
-            if ($attributeName -eq 'objectsid') {
+        $attributeNameList = ($srac.Keys + 'canonicalname' | Sort-Object)
+        foreach ($attributeName in $attributeNameList) {
+            if ($attributename -eq 'canonicalname') {
+                $values = ConvertTo-CanonicalName `
+                    -DistinguishedName $srac['distinguishedname'].GetValues('string') | 
+                        Select-Object -First 1
+            } elseif ($attributeName -eq 'objectsid') {
                 $values = $srac[$attributeName][0]
                 # NOTE Only Windows is familiar with its SecurityIdentifiers
                 if ($PSVersionTable.OS -match 'Windows') {
@@ -134,16 +157,15 @@ function Get-LDAPFuzzyQueryFilter
     foreach ($sTerm in $SearchTerm) {
         $filter = ''
         if ($ObjectClass) {
-            $filter += "(&(objectClass=$ObjectClass)"
+            $filter += "(&(objectclass=$ObjectClass)"
         }
-        $filter += "(|(cn=$sTerm)(Name=$sTerm)(sAMAccountName=$sTerm)(DistinguishedName=$sTerm)"
+        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)"
         if ($sTerm -match '\s') {
             $sTermSplit = $sTerm -split '\s'
             if ($sTermSplit.Count -eq 2) {
                 $sTerm1, $sTerm2 = $sTermSplit[0..1]
-                $filter += "(&(Givenname=$sTerm1)(SurName=$sTerm2))(&(Givenname=$sTerm2)(Surname=$sterm1))"
+                $filter += "(&(givenname=$sTerm1)(sn=$sTerm2))(&(givenname=$sTerm2)(sn=$sterm1))"
             }
-            # TODO Add more queries
         }
         $filter += ')'
         if ($ObjectClass) {
@@ -173,7 +195,6 @@ function Get-LDAPObject
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
             Convert-SearchResultAttributeCollectionToPSCustomObject `
                 -SearchResultAttributeCollection $_.Attributes
-            #$_
         }
     }
 }
@@ -219,7 +240,7 @@ function Set-LDAPObjectAttributeValue
         foreach ($ldapObject in $ldapObjectList) {
             Write-Host $ldapObject.distinguishedname -ForegroundColor Green
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -314,7 +335,7 @@ function Add-LDAPGroupMember
                     -ForegroundColor Green
             }
         }
-        Write-Host '[A]ll, [S]elect objects, [D]eselect objects , Ctrl+C to cancel' `
+        Write-Host '[A]ll, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
             -ForegroundColor Yellow
     } else {
         if ($ldapGroupList.Count -gt 0) {
