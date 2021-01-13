@@ -376,7 +376,6 @@ function Add-LDAPGroupMember
 
     $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
 
-
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         $addToMap = @()
         Write-Host "About to add group members:" `
@@ -423,6 +422,21 @@ function Remove-LDAPGroupMember
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
         return
     }
+}
+
+function New-LDAPObject
+{
+    Param(
+        [Parameter(Mandatory=$false)][String]$ObjectClass
+    )
+}
+
+function Remove-LDAPObject
+{
+}
+
+function Reset-ADObjectPassword
+{
 }
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
