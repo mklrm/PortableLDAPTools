@@ -183,6 +183,49 @@ function Get-LDAPFuzzyQueryFilter
     return $filters
 }
 
+function Get-Confirmation # TODO Rename
+{
+    Param(
+        [Parameter(Mandatory=$false)]$ObjectList,
+        [Parameter(Mandatory=$false)][String]$DisplayProperty = 'canonicalname'
+    )
+    $bail = $false
+    while ($bail -eq $false) {
+        $hideKeysStrokes = $true
+        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        switch ($key) {
+            A {
+                return $ObjectList
+            }
+            S {
+                return New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
+                    -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
+                    'Enter confirms.'
+            }
+            D {
+                $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
+                    -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
+                    'Enter confirms.'
+
+                $selectList = Compare-Object -ReferenceObject $ObjectList.Name `
+                    -DifferenceObject $deselectList.Name -IncludeEqual | 
+                    Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+                $selected = foreach ($select in $selectList) {
+                    $ObjectList | Where-Object { $_.Name -eq $select }
+                }
+                return $selected
+            }
+            Escape {
+                $bail = $true
+            }
+            Default {
+                # Do nothing I guess?
+            }
+        }
+    }
+    Write-Host 'Bye bye!' -ForegroundColor Yellow
+}
+
 function Get-LDAPObject
 {
     Param(
@@ -247,7 +290,7 @@ function Set-LDAPObjectAttributeValue
         foreach ($ldapObject in $ldapObjectList) {
             Write-Host $ldapObject.canonicalname -ForegroundColor Green
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -275,7 +318,7 @@ function Add-LDAPObjectAttributeValue
         foreach ($ldapObject in $ldapObjectList) {
             Write-Host $ldapObject.canonicalname -ForegroundColor Green
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -304,7 +347,7 @@ function Remove-LDAPObjectAttributeValue
         foreach ($ldapObject in $ldapObjectList) {
             Write-Host $ldapObject.distinguishedname -ForegroundColor Green
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
             -ForegroundColor Yellow
     }
 }
@@ -333,17 +376,31 @@ function Add-LDAPGroupMember
 
     $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
 
+
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
+        $addToMap = @()
         Write-Host "About to add group members:" `
             -ForegroundColor Yellow
         foreach ($ldapGroup in $ldapGroupList) {
             foreach ($ldapMember in $ldapMemberList) {
-                Write-Host "    $($ldapGroup.canonicalname): $($ldapMember.canonicalname)" `
+                Write-Host "    $($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)" `
                     -ForegroundColor Green
+                $addToMap += [PSCustomObject]@{
+                    Group = $ldapGroup
+                    Member = $ldapMember
+                    Name = "$($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)"
+                }
             }
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Ctrl+C to cancel' `
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
             -ForegroundColor Yellow
+        # TODO Make this loop
+        $addToMap = Get-Confirmation -ObjectList $addToMap -DisplayProperty Name
+        foreach ($addtoEntry in $addToMap) {
+            # TODO Write a separate function that adds an object to a group
+            # TODO Only write this if succesfully added member (whatever that looks like using this component):
+            Write-Host "Group $($addtoEntry.Group.canonicalname) member added: $($addToEntry.Member.canonicalname)"
+        }
     } else {
         if ($ldapGroupList.Count -gt 0) {
             Write-Host "Found no members to add."
