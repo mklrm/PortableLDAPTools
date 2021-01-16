@@ -80,7 +80,17 @@ function Set-LDAPObject
         $modifyRequest = New-Object `
             -TypeName System.DirectoryServices.Protocols.ModifyRequest `
             -ArgumentList $DistinguishedName, $addModification
+    } elseif ($Operation -eq 'Delete') {
+        $addModification = New-Object `
+            -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
+        $addModification.Name = $AttributeName
+        $addModification.Add($Values)
+        $addModification.Operation = 'Delete'
+        $modifyRequest = New-Object `
+            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
+            -ArgumentList $DistinguishedName, $addModification
     }
+
 
     $ldapServer.SendRequest($modifyRequest) | Out-Null
     # TODO The above returns something like:
