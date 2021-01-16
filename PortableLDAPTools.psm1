@@ -287,7 +287,7 @@ function Set-LDAPObjectAttributeValue
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
         while ($apply -eq $false) {
-            Write-Host "About to set '$Attribute' to '$Value' on the following objects:" `
+            Write-Host "About to set attribute '$Attribute' value to '$Value' on the following objects:" `
                 -ForegroundColor Yellow
             foreach ($ldapObject in $ldapObjectList) {
                 Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
@@ -306,7 +306,7 @@ function Set-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host "Set $($ldapObject.CanonicalName) $Attribute to $Value"
+            Write-Host "Set object $($ldapObject.CanonicalName) attribute '$Attribute' value  to '$Value'"
             # TODO Implement (write at function that does this)
         }
     } else {
@@ -332,13 +332,32 @@ function Add-LDAPObjectAttributeValue
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
-        Write-Host "About to add '$Value' to '$Attribute' on the following objects:" `
-            -ForegroundColor Yellow
-        foreach ($ldapObject in $ldapObjectList) {
-            Write-Host $ldapObject.canonicalname -ForegroundColor Green
+        $apply = $false
+        while ($apply -eq $false) {
+            Write-Host "About to add attribute '$Attribute' value '$Value' to the following objects:" `
+                -ForegroundColor Yellow
+            foreach ($ldapObject in $ldapObjectList) {
+                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+            }
+            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+                -ForegroundColor Yellow
+
+            $answer = Select-LDAPObject -ObjectList $ldapObjectList
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $ldapObjectList = $answer
+            }
+            if ($ldapObjectList.Count -eq 0) {
+                $apply = $true
+            }
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host "Added attribute '$Attribute' value '$Value' to object $($ldapObject.CanonicalName)"
+            # TODO Implement (write at function that does this)
+        }
+    } else {
+        Write-Host "Couldn't find objects to modify."
     }
 }
 
@@ -354,20 +373,84 @@ function Remove-LDAPObjectAttributeValue
         Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
         Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s) Value(s)"
         Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to remove all value(s) from"
+        Write-Host " Attribute: Which attribute to remove value(s) from"
         Write-Host "     Value: Which values to remove from attribute, default (not passed) is all"
         return
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
-        Write-Host "About to remove '$Value' from '$Attribute' on the following objects:" `
-            -ForegroundColor Yellow
-        foreach ($ldapObject in $ldapObjectList) {
-            Write-Host $ldapObject.distinguishedname -ForegroundColor Green
+        $apply = $false
+        while ($apply -eq $false) {
+            Write-Host "About to remove attribute '$Attribute' value '$Value' from the following objects:" `
+                -ForegroundColor Yellow
+            foreach ($ldapObject in $ldapObjectList) {
+                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+            }
+            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+                -ForegroundColor Yellow
+
+            $answer = Select-LDAPObject -ObjectList $ldapObjectList
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $ldapObjectList = $answer
+            }
+            if ($ldapObjectList.Count -eq 0) {
+                $apply = $true
+            }
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host "Removed attribute '$Attribute' value '$Value' from object $($ldapObject.CanonicalName)"
+            # TODO Implement (write at function that does this)
+        }
+    } else {
+        Write-Host "Couldn't find objects to modify."
+    }
+}
+
+function Clear-LDAPObjectAttributeValue
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+        [Parameter(Mandatory=$false)][String[]]$Attribute
+    )
+
+    if (-not $SearchTerm -or -not $Attribute) {
+        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
+        Write-Host "SearchTerm: Term to find objects by"
+        Write-Host " Attribute: Which attribute to remove all value(s) from"
+        return
+    }
+
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -gt 0) {
+        $apply = $false
+        while ($apply -eq $false) {
+            Write-Host "About to remove all values from attribute '$Attribute' from the following objects:" `
+                -ForegroundColor Yellow
+            foreach ($ldapObject in $ldapObjectList) {
+                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+            }
+            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+                -ForegroundColor Yellow
+
+            $answer = Select-LDAPObject -ObjectList $ldapObjectList
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $ldapObjectList = $answer
+            }
+            if ($ldapObjectList.Count -eq 0) {
+                $apply = $true
+            }
+        }
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host "Cleared attribute '$Attribute' value '$Value' from object $($ldapObject.CanonicalName)"
+            # TODO Implement (write at function that does this)
+        }
+    } else {
+        Write-Host "Couldn't find objects to modify."
     }
 }
 
@@ -533,6 +616,7 @@ Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
 Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
 Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttribute
 Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttribute
+Set-Alias -Name LDAPCl -Value Clear-LDAPObjectAttribute
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
 Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
 
