@@ -67,11 +67,31 @@ function Set-LDAPObject
         [Parameter(Mandatory=$true)][String]$AttributeName,
         [Parameter(Mandatory=$true)][String]$Values
     )
+    if ($Operation -eq 'Replace') {
     $modifyRequest = New-Object `
         -TypeName System.DirectoryServices.Protocols.ModifyRequest `
         -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
+    } elseif ($Operation -eq 'Add') {
+        $addModification = New-Object `
+            -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
+        $addModification.Name = $AttributeName
+        $addModification.Add($Values)
+        $addModification.Operation = 'Add'
+        $modifyRequest = New-Object `
+            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
+            -ArgumentList $DistinguishedName, $addModification
+    }
 
-    $ldapServer.SendRequest($modifyRequest)
+    $ldapServer.SendRequest($modifyRequest) | Out-Null
+    # TODO The above returns something like:
+    # RequestId    :
+    # MatchedDN    :
+    # Controls     : {}
+    # ResultCode   : Success
+    # ErrorMessage :
+    # Referral     : {}
+    # Which Out-Null hides. But this also throws a proper error at least when you target a non-existing object.
+    # Look into it.
 }
 
 function ConvertTo-CanonicalName
@@ -267,6 +287,21 @@ function Get-LDAPObjectByAttribute
     }
 }
 
+function Get-LDAPObjectByAttributeValue
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
+        [Parameter(Mandatory=$false)][String]$AttributeValue
+    )
+
+    if (-not $SearchTerm -and -not $SearchAttribute -and -not $AttributeValue) {
+        Write-Host "Usage: LDAPGetObjectByAttributeValue SearchAttribute(s) AttributeValue(s)"
+        Write-Host "SearchAttribute: Attribute(s) in which to look for AttributeValue(s)"
+        Write-Host " AttributeValue: Which values to look for int SearchAttribute(s)"
+        return
+    }
+}
+
 function Set-LDAPObjectAttributeValue
 {
     Param(
@@ -306,8 +341,15 @@ function Set-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host "Set object $($ldapObject.CanonicalName) attribute '$Attribute' value  to '$Value'"
-            # TODO Implement (write at function that does this)
+            try {
+                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                    -AttributeName $Attribute -Values $Value -ErrorAction Stop
+                Write-Host "Set object $($ldapObject.CanonicalName) attribute '$Attribute' value to '$Value'"
+            } catch {
+                $objName = $ldapObject.CanonicalName
+                $err = $_.ToString()
+                Write-Host "Error setting object $objName attribute '$Attribute' value to '$Value': $err"
+            }
         }
     } else {
         Write-Host "Couldn't find objects to modify."
@@ -605,6 +647,7 @@ function New-LDAPObject
 
 function Remove-LDAPObject
 {
+    # TODO Probably better to do New-LDAPUser, New-LDAPGroup
 }
 
 function Reset-ADObjectPassword
@@ -613,10 +656,14 @@ function Reset-ADObjectPassword
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
 Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
+Set-Alias -Name LDAPGetByAttributeValue -Value Get-LDAPObjectByAttribute
 Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
 Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttribute
-Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttribute
+Set-Alias -Name LDAPRemVal -Value Remove-LDAPObjectAttribute
 Set-Alias -Name LDAPCl -Value Clear-LDAPObjectAttribute
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
 Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
+Set-Alias -Name LDAPNewObj -Value New-LDAPObject
+Set-Alias -Name LDAPRemObj -Value Remove-LDAPObject
+Set-Alias -Name LDAPSetPass -Value Reset-ADObjectPassword
 
