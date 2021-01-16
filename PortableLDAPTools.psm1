@@ -352,11 +352,51 @@ function Remove-LDAPObjectAttributeValue
     }
 }
 
+function Select-LDAPGroupMemberModificationTarget
+{
+    param(
+        [parameter(mandatory=$false)]$LDAPGroupList,
+        [parameter(mandatory=$false)]$LDAPMemberList,
+        [parameter(mandatory=$false)]$OperationDescription,
+        [parameter(mandatory=$false)]$Instructions
+    )
+
+    $membershipMap = @()
+    foreach ($ldapGroup in $LDAPGroupList) {
+        foreach ($ldapMember in $LDAPMemberList) {
+            $membershipMap += [PSCustomObject]@{
+                Group = $ldapGroup
+                Member = $ldapMember
+                Name = "$($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)"
+            }
+        }
+    }
+    $apply = $false
+    while ($apply -eq $false) {
+        Write-Host $OperationDescription -ForegroundColor Yellow
+        foreach ($entry in $membershipMap) {
+            Write-Host "    $($entry.Group.canonicalname) -> $($entry.Member.canonicalname)" `
+                -ForegroundColor Green
+        }
+        Write-Host $Instructions -ForegroundColor Yellow
+        $answer = Select-LDAPObject -ObjectList $membershipMap -DisplayProperty Name
+        if ($answer -eq 'Apply') {
+            $apply = $true
+        } else {
+            $membershipMap = $answer
+        }
+        if ($membershipMap.Count -eq 0) {
+            $apply = $true
+        }
+    }
+    return $membershipMap
+}
+
 function Add-LDAPGroupMember
 {
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
-        [Parameter(Mandatory=$false)][String[]]$SearchTermMember
+    param(
+        [parameter(mandatory=$false)][string[]]$searchtermgroup,
+        [parameter(mandatory=$false)][string[]]$searchtermmember
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
@@ -364,6 +404,13 @@ function Add-LDAPGroupMember
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
         return
+    }
+
+    $operationDescription = "About to add group members:"
+
+    $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+    if ($PSVersionTable.OS -notmatch 'Windows') {
+        $instructions = '[A]pply, Esc to cancel'
     }
 
     $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
@@ -377,38 +424,9 @@ function Add-LDAPGroupMember
     $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
-        $addToMap = @()
-        foreach ($ldapGroup in $ldapGroupList) {
-            foreach ($ldapMember in $ldapMemberList) {
-                $addToMap += [PSCustomObject]@{
-                    Group = $ldapGroup
-                    Member = $ldapMember
-                    Name = "$($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)"
-                }
-            }
-        }
-        $apply = $false
-        while ($apply -eq $false) {
-            Write-Host "About to add group members:" -ForegroundColor Yellow
-            foreach ($entry in $addToMap) {
-                Write-Host "    $($entry.Group.canonicalname) -> $($entry.Member.canonicalname)" `
-                    -ForegroundColor Green
-            }
-            $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-            if ($PSVersionTable.OS -notmatch 'Windows') {
-                $instructions = '[A]pply, Esc to cancel'
-            }
-            Write-Host $instructions -ForegroundColor Yellow
-            $answer = Select-LDAPObject -ObjectList $addToMap -DisplayProperty Name
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $addToMap = $answer
-            }
-            if ($addToMap.Count -eq 0) {
-                $apply = $true
-            }
-        }
+        $addToMap = Select-LDAPGroupMemberModificationTarget `
+            -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
+            -OperationDescription $operationDescription -Instructions $instructions
         foreach ($addtoEntry in $addToMap) {
             # TODO Write a separate function that adds an object to a group
             # TODO Only write this if succesfully added member (whatever that looks like using this component):
