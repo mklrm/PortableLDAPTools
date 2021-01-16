@@ -285,13 +285,32 @@ function Set-LDAPObjectAttributeValue
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
-        Write-Host "About to set '$Attribute' to '$Value' on the following objects:" `
-            -ForegroundColor Yellow
-        foreach ($ldapObject in $ldapObjectList) {
-            Write-Host $ldapObject.canonicalname -ForegroundColor Green
+        $apply = $false
+        while ($apply -eq $false) {
+            Write-Host "About to set '$Attribute' to '$Value' on the following objects:" `
+                -ForegroundColor Yellow
+            foreach ($ldapObject in $ldapObjectList) {
+                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+            }
+            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+                -ForegroundColor Yellow
+
+            $answer = Select-LDAPObject -ObjectList $ldapObjectList
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $ldapObjectList = $answer
+            }
+            if ($ldapObjectList.Count -eq 0) {
+                $apply = $true
+            }
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-            -ForegroundColor Yellow
+        foreach ($ldapObject in $ldapObjectList) {
+            Write-Host "Set $($ldapObject.CanonicalName) $Attribute to $Value"
+            # TODO Implement (write at function that does this)
+        }
+    } else {
+        Write-Host "Couldn't find objects to modify."
     }
 }
 
