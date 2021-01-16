@@ -183,47 +183,47 @@ function Get-LDAPFuzzyQueryFilter
     return $filters
 }
 
-function Get-Confirmation # TODO Rename
+function Select-LDAPObject
 {
     Param(
-        [Parameter(Mandatory=$false)]$ObjectList,
+        [Parameter(Mandatory=$true)]$ObjectList,
         [Parameter(Mandatory=$false)][String]$DisplayProperty = 'canonicalname'
     )
-    $bail = $false
-    while ($bail -eq $false) {
+    while ($true) {
         $hideKeysStrokes = $true
         $key = ([Console]::ReadKey($hideKeysStrokes)).Key
         switch ($key) {
             A {
-                return $ObjectList
+                return 'Apply'
             }
             S {
-                return New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
-                    -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
-                    'Enter confirms.'
+                if ($PSVersionTable.OS -match 'Windows') {
+                    $selected = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
+                        -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
+                        'Enter confirms.'
+                    return $selected
+                }
             }
             D {
-                $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
-                    -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
-                    'Enter confirms.'
+                if ($PSVersionTable.OS -match 'Windows') {
+                    $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
+                        -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
+                        'Enter confirms.'
 
-                $selectList = Compare-Object -ReferenceObject $ObjectList.Name `
-                    -DifferenceObject $deselectList.Name -IncludeEqual | 
-                    Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
-                $selected = foreach ($select in $selectList) {
-                    $ObjectList | Where-Object { $_.Name -eq $select }
+                    $selectList = Compare-Object -ReferenceObject $ObjectList.Name `
+                        -DifferenceObject $deselectList.Name -IncludeEqual | 
+                        Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+                    $selected = foreach ($select in $selectList) {
+                        $ObjectList | Where-Object { $_.Name -eq $select }
+                    }
+                    return $selected
                 }
-                return $selected
             }
             Escape {
-                $bail = $true
-            }
-            Default {
-                # Do nothing I guess?
+                return @()
             }
         }
     }
-    Write-Host 'Bye bye!' -ForegroundColor Yellow
 }
 
 function Get-LDAPObject
@@ -378,12 +378,8 @@ function Add-LDAPGroupMember
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         $addToMap = @()
-        Write-Host "About to add group members:" `
-            -ForegroundColor Yellow
         foreach ($ldapGroup in $ldapGroupList) {
             foreach ($ldapMember in $ldapMemberList) {
-                Write-Host "    $($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)" `
-                    -ForegroundColor Green
                 $addToMap += [PSCustomObject]@{
                     Group = $ldapGroup
                     Member = $ldapMember
@@ -391,14 +387,34 @@ function Add-LDAPGroupMember
                 }
             }
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-            -ForegroundColor Yellow
-        # TODO Make this loop
-        $addToMap = Get-Confirmation -ObjectList $addToMap -DisplayProperty Name
+        $apply = $false
+        while ($apply -eq $false) {
+            Write-Host "About to add group members:" -ForegroundColor Yellow
+            foreach ($entry in $addToMap) {
+                Write-Host "    $($entry.Group.canonicalname) -> $($entry.Member.canonicalname)" `
+                    -ForegroundColor Green
+            }
+            $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+            if ($PSVersionTable.OS -notmatch 'Windows') {
+                $instructions = '[A]pply, Esc to cancel'
+            }
+            Write-Host $instructions -ForegroundColor Yellow
+            $answer = Select-LDAPObject -ObjectList $addToMap -DisplayProperty Name
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $addToMap = $answer
+            }
+            if ($addToMap.Count -eq 0) {
+                $apply = $true
+            }
+        }
         foreach ($addtoEntry in $addToMap) {
             # TODO Write a separate function that adds an object to a group
             # TODO Only write this if succesfully added member (whatever that looks like using this component):
-            Write-Host "Group $($addtoEntry.Group.canonicalname) member added: $($addToEntry.Member.canonicalname)"
+            $groupCanName = $addtoEntry.Group.canonicalname
+            $groupMemName = $addToEntry.Member.canonicalname
+            Write-Host "Group $groupCanName member added: $groupMemName"
         }
     } else {
         if ($ldapGroupList.Count -gt 0) {
