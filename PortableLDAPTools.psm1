@@ -450,11 +450,47 @@ function Remove-LDAPGroupMember
         [Parameter(Mandatory=$false)][String[]]$SearchTermMember
     )
 
-    if (-not $Filter -and -not $Attribute) {
+    if (-not $SearchTermGroup -and -not $SearchTermMember) {
         Write-Host "Usage: LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
         Write-Host " SearchTermGroup: Term to find groups by"
         Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
         return
+    }
+
+    $operationDescription = "About to remove group members:"
+
+    $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+    if ($PSVersionTable.OS -notmatch 'Windows') {
+        $instructions = '[A]pply, Esc to cancel'
+    }
+
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
+    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
+        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+            Convert-SearchResultAttributeCollectionToPSCustomObject `
+                -SearchResultAttributeCollection $_.Attributes
+        }
+    }
+
+    $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
+
+    if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
+        $addToMap = Select-LDAPGroupMemberModificationTarget `
+            -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
+            -OperationDescription $operationDescription -Instructions $instructions
+        foreach ($addtoEntry in $addToMap) {
+            # TODO Write a separate function that removes an object from a group
+            # TODO Only write this if succesfully removed member (whatever that looks like using this component):
+            $groupCanName = $addtoEntry.Group.canonicalname
+            $groupMemName = $addToEntry.Member.canonicalname
+            Write-Host "Group $groupCanName member removed: $groupMemName"
+        }
+    } else {
+        if ($ldapGroupList.Count -gt 0) {
+            Write-Host "Found no members to remove."
+        } else {
+            Write-Host "Found no groups to remove members from."
+        }
     }
 }
 
