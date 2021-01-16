@@ -582,11 +582,17 @@ function Add-LDAPGroupMember
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
             -OperationDescription $operationDescription -Instructions $instructions
         foreach ($addtoEntry in $addToMap) {
-            # TODO Write a separate function that adds an object to a group
-            # TODO Only write this if succesfully added member (whatever that looks like using this component):
+            $groupDN = $addtoEntry.Group.DistinguishedName
+            $memberDN = $addtoEntry.Member.DistinguishedName
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
-            Write-Host "Group $groupCanName member added: $groupMemName"
+            try {
+                Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
+                    -Values $memberDN -ErrorAction Stop
+                Write-Host "Group $groupCanName member added: $groupMemName"
+            } catch {
+                Write-Host "Error adding group $groupCanName member: $($groupMemName): $($_.ToString())"
+            }                
         }
     } else {
         if ($ldapGroupList.Count -gt 0) {
@@ -633,11 +639,17 @@ function Remove-LDAPGroupMember
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
             -OperationDescription $operationDescription -Instructions $instructions
         foreach ($addtoEntry in $addToMap) {
-            # TODO Write a separate function that removes an object from a group
-            # TODO Only write this if succesfully removed member (whatever that looks like using this component):
+            $groupDN = $addtoEntry.Group.DistinguishedName
+            $memberDN = $addtoEntry.Member.DistinguishedName
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
-            Write-Host "Group $groupCanName member removed: $groupMemName"
+            try {
+                Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
+                    -Values $memberDN -ErrorAction Stop
+                Write-Host "Group $groupCanName member removed: $groupMemName"
+            } catch {
+                Write-Host "Error removing group $groupCanName member: $($groupMemName): $($_.ToString())"
+            }                
         }
     } else {
         if ($ldapGroupList.Count -gt 0) {
