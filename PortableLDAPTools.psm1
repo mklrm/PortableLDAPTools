@@ -19,6 +19,9 @@ $userName = $config.userName
 $authType = $config.authType
 $searchbase = $config.searchbase
 
+$Script:credential = $null
+$Script:ldapServer = $null
+
 $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
 
@@ -29,32 +32,42 @@ if ($config.logFileFullName) {
     $logFileFullName = $config.logFileFullName
 }
 
-Write-Host "Enter password for user $userDomain\$($userName):"
-$userPassword = Read-Host -MaskInput
+function Get-LDAPCredential
+{
+    Write-Host "Enter password for user $userDomain\$($userName):"
+    $userPassword = Read-Host -MaskInput
 
-if ($authType -eq 'Basic') {
-    $credential = New-Object `
-        -TypeName System.Net.NetworkCredential `
-        -ArgumentList "$userDomain\$userName", $userPassword
-}
+    if ($authType -eq 'Basic') {
+        return New-Object `
+            -TypeName System.Net.NetworkCredential `
+            -ArgumentList "$userDomain\$userName", $userPassword
+    }
 
-if ($authType -eq 'Negotiate') {
-    if ($PSVersionTable.OS -match 'Linux') {
-        $credential = New-Object `
-            -TypeName System.Net.NetworkCredential `
-            -ArgumentList $userDomain\$userName, $userPassword
-    } else {
-        $credential = New-Object `
-            -TypeName System.Net.NetworkCredential `
-            -ArgumentList $userName, $userPassword, $userDomain
+    if ($authType -eq 'Negotiate') {
+        if ($PSVersionTable.OS -match 'Linux') {
+            return New-Object `
+                -TypeName System.Net.NetworkCredential `
+                -ArgumentList $userDomain\$userName, $userPassword
+        } else {
+            return  New-Object `
+                -TypeName System.Net.NetworkCredential `
+                -ArgumentList $userName, $userPassword, $userDomain
+        }
     }
 }
 
-$ldapServer = New-Object `
-    -TypeName System.DirectoryServices.Protocols.LdapConnection `
-    -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
+function Connect-LDAPServer
+{
+    if ($null -eq $credential) {
+        $Script:credential = Get-LDAPCredential
+    }
+    $ldapServer = New-Object `
+        -TypeName System.DirectoryServices.Protocols.LdapConnection `
+        -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
 
-$ldapServer.SessionOptions.ProtocolVersion = 3
+    $ldapServer.SessionOptions.ProtocolVersion = 3
+    return $ldapServer
+}
 
 function Write-Log
 {
@@ -108,7 +121,11 @@ function Invoke-LDAPQuery
         -TypeName System.DirectoryServices.Protocols.SearchRequest `
         -ArgumentList $searchbase, $Filter, $scope, $attributeList
 
-    $ldapServer.SendRequest($searchRequest)
+    if ($null -eq $Script:ldapServer) {
+        $Script:ldapServer = Connect-LDAPServer
+    }
+
+    $Script:ldapServer.SendRequest($searchRequest)
 }
 
 function Set-LDAPObject
