@@ -5,7 +5,11 @@
 # TODO Add logging to text file, default location to profile or home directory 
 # depending on OS, allow to be configured.
 
-$configFile = "$PSScriptRoot\PortableLDAPTools.xml"
+# TODO Add an authentication/initialization function
+
+$scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
+
+$configFile = "$PSScriptRoot\$scriptFileName.xml"
 $config = Import-Clixml -Path $configFile
 
 $ldapServerName = $config.ldapServerName
@@ -14,6 +18,16 @@ $userDomain = $config.userDomain
 $userName = $config.userName
 $authType = $config.authType
 $searchbase = $config.searchbase
+
+$logFileEncoding = 'utf8'
+$logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
+
+$pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
+$logFileFullName = "$pathMyDocuments\$logFileName"
+
+if ($config.logFileFullName) {
+    $logFileFullName = $config.logFileFullName
+}
 
 Write-Host "Enter password for user $userDomain\$($userName):"
 $userPassword = Read-Host -MaskInput
@@ -41,6 +55,45 @@ $ldapServer = New-Object `
     -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
 
 $ldapServer.SessionOptions.ProtocolVersion = 3
+
+function Write-Log
+{
+    Param(
+        [Parameter(Mandatory=$true)][String]$Message,
+        [Parameter(Mandatory=$false)]
+        [ValidateSet('Informational', 'Error')]
+        [String]$Level = 'Informational'
+    )
+    $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
+    switch ($Level) {
+        'Informational' {
+            $foregroundColor = $HOST.UI.RawUI.ForegroundColor
+            $backgroundColor = $HOST.UI.RawUI.BackgroundColor
+        }
+        'Error' {
+            # TODO Maybe there's a way to determine the color 
+            # that's being used for error messages, for now 
+            # doing this should be a safe bet
+            $foregroundColor = $HOST.UI.RawUI.BackgroundColor
+            $backgroundColor = $HOST.UI.RawUI.ForegroundColor
+        }
+    }
+    Write-Host -Object $Message `
+        -ForegroundColor $foregroundColor `
+        -BackgroundColor $backgroundColor
+    $logMessage | Out-File -FilePath $logFileFullName `
+        -Encoding $logFileEncoding -Append -Force
+}
+
+try {
+    $msg = "$PSCommandPath loading"
+    Write-Log -Message $msg -ErrorAction Stop
+} catch {
+    $err = $_.ToString()
+    throw "Error writing to log file $($logFileFullName): $err"
+}
+
+Write-Log -Message "Logging to $logFileFullName"
 
 function Invoke-LDAPQuery
 {
@@ -180,8 +233,6 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
 # NOTE ALL OF THE BELOW FUNCTIONS ARE MEANT TO BE USED INTERACTIVELY, NOT IN A SCRIPT.
 # They make fuzzy searches so objects found and selected for modification might not 
 # be what you'd expect.
-# TODO Add a warning to the command help texts too
-# TODO Show what's about to be modified and let user confirm before taking action
 
 function Get-LDAPFuzzyQueryFilter
 {
@@ -357,15 +408,15 @@ function Set-LDAPObjectAttributeValue
             $oldValue = $ldapObject.$Attribute -join ', '
             try {
                 $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Host $msg
+                Write-Log -Message $msg
                 Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
                     -AttributeName $Attribute -Values $Value -ErrorAction Stop
                 $msg = "'$objName' '$Attribute' set to '$Value'"
-                Write-Host $msg
+                Write-Log -Message $msg
             } catch {
                 $err = $_.ToString()
                 $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }
         }
     } else {
@@ -417,15 +468,15 @@ function Add-LDAPObjectAttributeValue
             $oldValue = $ldapObject.$Attribute -join ', '
             try {
                 $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Host $msg
+                Write-Log -Message $msg
                 Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
                     -AttributeName $Attribute -Values $Value -ErrorAction Stop
                 $msg = "'$objName' '$Attribute' value '$valName' added"
-                Write-Host $msg
+                Write-Log -Message $msg
             } catch {
                 $err = $_.ToString()
                 $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }
         }
     } else {
@@ -477,15 +528,15 @@ function Remove-LDAPObjectAttributeValue
             $oldValue = $ldapObject.$Attribute -join ', '
             try {
                 $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Host $msg
+                Write-Log -Message $msg
                 Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
                     -AttributeName $Attribute -Values $Value
                 $msg = "'$objName' '$Attribute' '$Value' removed"
-                Write-Host $msg
+                Write-Log -Message $msg
             } catch {
                 $err = $_.ToString()
                 $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }
         }
     } else {
@@ -534,15 +585,15 @@ function Clear-LDAPObjectAttributeValue
             $oldValue = $ldapObject.$Attribute -join ', '
             try {
                 $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Host $msg
+                Write-Log -Message $msg
                 Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
                     -AttributeName $Attribute -Values $ldapObject.$Attribute -ErrorAction Stop
                 $msg = "'$objName' '$Attribute' cleared"
-                Write-Host $msg
+                Write-Log -Message $msg
             } catch {
                 $err = $_.ToString()
                 $msg = "Error clearing '$objName' '$Attribute': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }
         }
     } else {
@@ -633,17 +684,17 @@ function Add-LDAPGroupMember
             try {
                 if ($addtoEntry.Group.member -contains $addtoEntry.Member.distinguishedname) {
                     $msg = "'$groupCanName' already contains '$groupMemName'"
-                    Write-Host $msg
+                    Write-Log -Message $msg
                 } else {
                     Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
                         -Values $memberDN -ErrorAction Stop
                     $msg = "'$groupCanName' member '$groupMemName' added"
-                    Write-Host $msg
+                    Write-Log -Message $msg
                 }
             } catch {
                 $err = $_.ToString()
                 $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }                
         }
     } else {
@@ -698,17 +749,17 @@ function Remove-LDAPGroupMember
             try {
                 if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
                     $msg = "'$groupCanName' does not contain '$groupMemName'"
-                    Write-Host $msg
+                    Write-Log -Message $msg
                 } else {
                     Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
                         -Values $memberDN -ErrorAction Stop
                     $msg = "'$groupCanName' member '$groupMemName' removed"
-                    Write-Host $msg
+                    Write-Log -Message $msg
                 }
             } catch {
                 $err = $_.ToString()
                 $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
-                Write-Host $msg
+                Write-Log -Message $msg -Level Error
             }                
         }
     } else {
