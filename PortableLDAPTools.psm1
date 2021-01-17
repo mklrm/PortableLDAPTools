@@ -5,7 +5,9 @@
 # TODO Add logging to text file, default location to profile or home directory 
 # depending on OS, allow to be configured.
 
-# TODO Add an authentication/initialization function
+# TODO Add a function that returns a list of log files
+
+# TODO Regenerate the log file name when running a query, inform if it changes (day changes)
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
@@ -387,7 +389,8 @@ function Set-LDAPObjectAttributeValue
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
         [Parameter(Mandatory=$false)][String]$Attribute,
-        [Parameter(Mandatory=$false)][String]$Value
+        [Parameter(Mandatory=$false)][String]$Value,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
@@ -401,6 +404,9 @@ function Set-LDAPObjectAttributeValue
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
+        if ($NoConfirmation.IsPresent) {
+            $apply = $true
+        }
         while ($apply -eq $false) {
             Write-Host "About to set attribute '$Attribute' value to '$Value' on the following objects:" `
                 -ForegroundColor Yellow
@@ -446,7 +452,8 @@ function Add-LDAPObjectAttributeValue
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
         [Parameter(Mandatory=$false)][String]$Attribute,
-        [Parameter(Mandatory=$false)][String]$Value
+        [Parameter(Mandatory=$false)][String]$Value,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
@@ -460,6 +467,9 @@ function Add-LDAPObjectAttributeValue
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
+        if ($NoConfirmation.IsPresent) {
+            $apply = $true
+        }
         while ($apply -eq $false) {
             Write-Host "About to add attribute '$Attribute' value '$Value' to the following objects:" `
                 -ForegroundColor Yellow
@@ -505,8 +515,9 @@ function Remove-LDAPObjectAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$Attribute,
-        [Parameter(Mandatory=$false)][String[]]$Value
+        [Parameter(Mandatory=$false)][String]$Attribute,
+        [Parameter(Mandatory=$false)][String]$Value,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
@@ -521,6 +532,9 @@ function Remove-LDAPObjectAttributeValue
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
+        if ($NoConfirmation.IsPresent) {
+            $apply = $true
+        }
         while ($apply -eq $false) {
             Write-Host "About to remove attribute '$Attribute' value '$Value' from the following objects:" `
                 -ForegroundColor Yellow
@@ -565,7 +579,8 @@ function Clear-LDAPObjectAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String]$Attribute
+        [Parameter(Mandatory=$false)][String]$Attribute,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTerm -or -not $Attribute) {
@@ -578,6 +593,9 @@ function Clear-LDAPObjectAttributeValue
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
+        if ($NoConfirmation.IsPresent) {
+            $apply = $true
+        }
         while ($apply -eq $false) {
             Write-Host "About to remove all values from attribute '$Attribute' from the following objects:" `
                 -ForegroundColor Yellow
