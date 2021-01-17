@@ -75,7 +75,7 @@ function Set-LDAPObject
         $addModification = New-Object `
             -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
         $addModification.Name = $AttributeName
-        $addModification.Add($Values)
+        $addModification.Add($Values) | Out-Null
         $addModification.Operation = 'Add'
         $modifyRequest = New-Object `
             -TypeName System.DirectoryServices.Protocols.ModifyRequest `
@@ -84,7 +84,7 @@ function Set-LDAPObject
         $addModification = New-Object `
             -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
         $addModification.Name = $AttributeName
-        $addModification.Add($Values)
+        $addModification.Add($Values) | Out-Null
         $addModification.Operation = 'Delete'
         $modifyRequest = New-Object `
             -TypeName System.DirectoryServices.Protocols.ModifyRequest `
@@ -92,7 +92,7 @@ function Set-LDAPObject
     }
 
 
-    $ldapServer.SendRequest($modifyRequest) | Out-Null
+    $ldapServer.SendRequest($modifyRequest) | out-null
     # TODO The above returns something like:
     # RequestId    :
     # MatchedDN    :
@@ -271,12 +271,14 @@ function Get-LDAPObject
         return
     }
 
+    $result = @()
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            Convert-SearchResultAttributeCollectionToPSCustomObject `
+            $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
                 -SearchResultAttributeCollection $_.Attributes
         }
     }
+    $result | Sort-Object -Property canonicalname
 }
 
 function Get-LDAPObjectByAttribute
@@ -351,18 +353,23 @@ function Set-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
+            $objName = $ldapObject.CanonicalName
+            $oldValue = $ldapObject.$Attribute -join ', '
             try {
+                $msg = "'$objName' '$Attribute' is '$oldValue'"
+                Write-Host $msg
                 Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
                     -AttributeName $Attribute -Values $Value -ErrorAction Stop
-                Write-Host "Set object $($ldapObject.CanonicalName) attribute '$Attribute' value to '$Value'"
+                $msg = "'$objName' '$Attribute' set to '$Value'"
+                Write-Host $msg
             } catch {
-                $objName = $ldapObject.CanonicalName
                 $err = $_.ToString()
-                Write-Host "Error setting object $objName attribute '$Attribute' value to '$Value': $err"
+                $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
+                Write-Host $msg
             }
         }
     } else {
-        Write-Host "Couldn't find objects to modify."
+        Write-Host "Could not find objects to modify."
     }
 }
 
@@ -405,11 +412,24 @@ function Add-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host "Added attribute '$Attribute' value '$Value' to object $($ldapObject.CanonicalName)"
-            # TODO Implement (write at function that does this)
+            $objName = $ldapObject.canonicalname
+            $valName = $Value -join ', '
+            $oldValue = $ldapObject.$Attribute -join ', '
+            try {
+                $msg = "'$objName' '$Attribute' is '$oldValue'"
+                Write-Host $msg
+                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
+                    -AttributeName $Attribute -Values $Value -ErrorAction Stop
+                $msg = "'$objName' '$Attribute' value '$valName' added"
+                Write-Host $msg
+            } catch {
+                $err = $_.ToString()
+                $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
+                Write-Host $msg
+            }
         }
     } else {
-        Write-Host "Couldn't find objects to modify."
+        Write-Host "Could not find objects to modify."
     }
 }
 
@@ -453,11 +473,23 @@ function Remove-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host "Removed attribute '$Attribute' value '$Value' from object $($ldapObject.CanonicalName)"
-            # TODO Implement (write at function that does this)
+            $objName = $ldapObject.CanonicalName
+            $oldValue = $ldapObject.$Attribute -join ', '
+            try {
+                $msg = "'$objName' '$Attribute' is '$oldValue'"
+                Write-Host $msg
+                Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
+                    -AttributeName $Attribute -Values $Value
+                $msg = "'$objName' '$Attribute' '$Value' removed"
+                Write-Host $msg
+            } catch {
+                $err = $_.ToString()
+                $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
+                Write-Host $msg
+            }
         }
     } else {
-        Write-Host "Couldn't find objects to modify."
+        Write-Host "Could not find objects to modify."
     }
 }
 
@@ -465,7 +497,7 @@ function Clear-LDAPObjectAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$Attribute
+        [Parameter(Mandatory=$false)][String]$Attribute
     )
 
     if (-not $SearchTerm -or -not $Attribute) {
@@ -498,11 +530,23 @@ function Clear-LDAPObjectAttributeValue
             }
         }
         foreach ($ldapObject in $ldapObjectList) {
-            Write-Host "Cleared attribute '$Attribute' value '$Value' from object $($ldapObject.CanonicalName)"
-            # TODO Implement (write at function that does this)
+            $objName = $ldapObject.CanonicalName
+            $oldValue = $ldapObject.$Attribute -join ', '
+            try {
+                $msg = "'$objName' '$Attribute' is '$oldValue'"
+                Write-Host $msg
+                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
+                    -AttributeName $Attribute -Values $ldapObject.$Attribute -ErrorAction Stop
+                $msg = "'$objName' '$Attribute' cleared"
+                Write-Host $msg
+            } catch {
+                $err = $_.ToString()
+                $msg = "Error clearing '$objName' '$Attribute': $err"
+                Write-Host $msg
+            }
         }
     } else {
-        Write-Host "Couldn't find objects to modify."
+        Write-Host "Could not find objects to modify."
     }
 }
 
@@ -587,11 +631,19 @@ function Add-LDAPGroupMember
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
             try {
-                Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
-                    -Values $memberDN -ErrorAction Stop
-                Write-Host "Group $groupCanName member added: $groupMemName"
+                if ($addtoEntry.Group.member -contains $addtoEntry.Member.distinguishedname) {
+                    $msg = "'$groupCanName' already contains '$groupMemName'"
+                    Write-Host $msg
+                } else {
+                    Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
+                        -Values $memberDN -ErrorAction Stop
+                    $msg = "'$groupCanName' member '$groupMemName' added"
+                    Write-Host $msg
+                }
             } catch {
-                Write-Host "Error adding group $groupCanName member: $($groupMemName): $($_.ToString())"
+                $err = $_.ToString()
+                $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
+                Write-Host $msg
             }                
         }
     } else {
@@ -644,11 +696,19 @@ function Remove-LDAPGroupMember
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
             try {
-                Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
-                    -Values $memberDN -ErrorAction Stop
-                Write-Host "Group $groupCanName member removed: $groupMemName"
+                if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
+                    $msg = "'$groupCanName' does not contain '$groupMemName'"
+                    Write-Host $msg
+                } else {
+                    Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
+                        -Values $memberDN -ErrorAction Stop
+                    $msg = "'$groupCanName' member '$groupMemName' removed"
+                    Write-Host $msg
+                }
             } catch {
-                Write-Host "Error removing group $groupCanName member: $($groupMemName): $($_.ToString())"
+                $err = $_.ToString()
+                $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
+                Write-Host $msg
             }                
         }
     } else {
@@ -660,7 +720,7 @@ function Remove-LDAPGroupMember
     }
 }
 
-function New-LDAPObject
+function Add-LDAPObject
 {
     Param(
         [Parameter(Mandatory=$false)][String]$ObjectClass
@@ -679,13 +739,13 @@ function Reset-ADObjectPassword
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
 Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
 Set-Alias -Name LDAPGetByAttributeValue -Value Get-LDAPObjectByAttribute
-Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
-Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttribute
-Set-Alias -Name LDAPRemVal -Value Remove-LDAPObjectAttribute
-Set-Alias -Name LDAPCl -Value Clear-LDAPObjectAttribute
+Set-Alias -Name LDAPSetVal -Value Set-LDAPObjectAttributeValue
+Set-Alias -Name LDAPAddVal -Value Add-LDAPObjectAttributeValue
+Set-Alias -Name LDAPRemVal -Value Remove-LDAPObjectAttributeValue
+Set-Alias -Name LDAPClrVal -Value Clear-LDAPObjectAttributeValue
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
 Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
-Set-Alias -Name LDAPNewObj -Value New-LDAPObject
+Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
 Set-Alias -Name LDAPRemObj -Value Remove-LDAPObject
 Set-Alias -Name LDAPSetPass -Value Reset-ADObjectPassword
 
