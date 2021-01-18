@@ -65,8 +65,11 @@ function Connect-LDAPServer
     }
     $ldapServer = New-Object `
         -TypeName System.DirectoryServices.Protocols.LdapConnection `
-        -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
+        -ArgumentList "$($ldapServerName):$ldapPort", $credential, 'Kerberos'
+        #-ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
 
+    $ldapServer.SessionOptions.SecureSocketLayer = $true
+    #$ldapServer.SessionOptions.Sealing = $true
     $ldapServer.SessionOptions.ProtocolVersion = 3
     return $ldapServer
 }
@@ -820,6 +823,34 @@ function Remove-LDAPObject
 
 function Reset-ADObjectPassword
 {
+    Param(
+        [Parameter(Mandatory=$false)][string]$DistinguishedName,
+        [Parameter(Mandatory=$false)][string]$NewPass
+    )
+
+    # Code to convert password to correct format copied from the answer by Michael Frommhold MSFT:
+    # https://social.technet.microsoft.com/Forums/en-US/7af21e17-18dc-4eea-8439-ffd9a2d5bcaf/reset-password-with-history-resulting-in-the-server-does-not-support-the-control-the-control-is?forum=winserverDS
+    function BuildBytePwd([string] $pass)
+    {
+        [byte[]] $ret = $null
+        [string] $formattedpwd = [char]34 + $pass + [char]34
+        $ret = [System.Text.Encoding]::Unicode.GetBytes($formattedpwd)
+        return $ret
+    }
+
+    [byte[]] $bpwd = BuildBytePwd $NewPass
+
+    $passwordModification = New-Object `
+        -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
+    $passwordModification.Name = 'unicodePwd'
+    $passwordModification.Add($bpwd)
+    $passwordModification.Operation = 'Replace'
+
+    $modifyRequest = New-Object `
+        -TypeName System.DirectoryServices.Protocols.ModifyRequest `
+        -ArgumentList $DistinguishedName, $passwordModification
+
+    $Script:ldapServer.SendRequest($modifyRequest) | Out-Null
 }
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
