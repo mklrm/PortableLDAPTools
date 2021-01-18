@@ -65,8 +65,7 @@ function Connect-LDAPServer
     }
     $ldapServer = New-Object `
         -TypeName System.DirectoryServices.Protocols.LdapConnection `
-        -ArgumentList "$($ldapServerName):$ldapPort", $credential, 'Kerberos'
-        #-ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
+        -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
 
     $ldapServer.SessionOptions.SecureSocketLayer = $true
     #$ldapServer.SessionOptions.Sealing = $true
@@ -843,7 +842,7 @@ function Reset-ADObjectPassword
     $passwordModification = New-Object `
         -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
     $passwordModification.Name = 'unicodePwd'
-    $passwordModification.Add($bpwd)
+    $passwordModification.Add($bpwd) | Out-Null
     $passwordModification.Operation = 'Replace'
 
     $modifyRequest = New-Object `
