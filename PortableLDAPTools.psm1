@@ -79,7 +79,8 @@ function Write-Log
         [Parameter(Mandatory=$true)][String]$Message,
         [Parameter(Mandatory=$false)]
         [ValidateSet('Informational', 'Error')]
-        [String]$Level = 'Informational'
+        [String]$Level = 'Informational',
+        [Parameter(Mandatory=$false)][Switch]$NoEcho
     )
     $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
     switch ($Level) {
@@ -95,9 +96,11 @@ function Write-Log
             $backgroundColor = $HOST.UI.RawUI.ForegroundColor
         }
     }
-    Write-Host -Object $Message `
-        -ForegroundColor $foregroundColor `
-        -BackgroundColor $backgroundColor
+    if (-not $NoEcho.IsPresent) {
+        Write-Host -Object $Message `
+            -ForegroundColor $foregroundColor `
+            -BackgroundColor $backgroundColor
+    }
     $logMessage | Out-File -FilePath $logFileFullName `
         -Encoding $logFileEncoding -Append -Force
 }
@@ -139,12 +142,12 @@ function Set-LDAPObject
         [Parameter(Mandatory=$true)]
         [ValidateSet('Add', 'Delete', 'Replace')][String]$Operation,
         [Parameter(Mandatory=$true)][String]$AttributeName,
-        [Parameter(Mandatory=$true)][String]$Values
+        [Parameter(Mandatory=$true)]$Values
     )
     if ($Operation -eq 'Replace') {
-    $modifyRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.ModifyRequest `
-        -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
+        $modifyRequest = New-Object `
+            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
+            -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
     } elseif ($Operation -eq 'Add') {
         $addModification = New-Object `
             -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
@@ -165,6 +168,9 @@ function Set-LDAPObject
             -ArgumentList $DistinguishedName, $addModification
     }
 
+    if ($null -eq $Script:ldapServer) {
+        $Script:ldapServer = Connect-LDAPServer
+    }
 
     $ldapServer.SendRequest($modifyRequest) | out-null
     # TODO The above returns something like:
@@ -403,6 +409,8 @@ function Set-LDAPObjectAttributeValue
         return
     }
 
+    # TODO I still have way too much almost identical code for 
+    # picking the objects in these functions, move it out
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -gt 0) {
         $apply = $false
@@ -823,33 +831,99 @@ function Remove-LDAPObject
 function Reset-ADObjectPassword
 {
     Param(
-        [Parameter(Mandatory=$false)][string]$DistinguishedName,
-        [Parameter(Mandatory=$false)][string]$NewPass
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+        [Parameter(Mandatory=$false)][SecureString]$NewPassword
     )
+    
+    # TODO Maybe let user to input one password and have 
+    # randomly generated ones be protected by that. Save 
+    # them in a zip file with a password on it or something. 
+    # AND then don't echo the password...
+    # AND when you do, maybe do this instead of 'objname pass set to <password>':
+    # Account: Domain\Account
+    # Password: <password>
+    
+    if (-not $SearchTerm) {
+        Write-Host "Usage: LDAPSetPass SearchTerm(s)"
+        Write-Host "Usage: LDAPSetPass SearchTerm(s) NewPassword"
+        Write-Host " SearchTerm: Term to find objects by"
+        Write-Host "NewPassword: Automatically generated if not provided"
+        return
+    }
 
     # Code to convert password to correct format copied from the answer by Michael Frommhold MSFT:
     # https://social.technet.microsoft.com/Forums/en-US/7af21e17-18dc-4eea-8439-ffd9a2d5bcaf/reset-password-with-history-resulting-in-the-server-does-not-support-the-control-the-control-is?forum=winserverDS
-    function BuildBytePwd([string] $pass)
+
+    function ConvertTo-LDAPPassword
     {
-        [byte[]] $ret = $null
-        [string] $formattedpwd = [char]34 + $pass + [char]34
+        Param(
+            [Parameter(Mandatory=$true)][SecureString]$Password
+        )
+        [string]$Password = ConvertFrom-SecureString -SecureString $Password -AsPlainText
+        [byte[]]$ret = $null
+        [string]$formattedpwd = [char]34 + $Password + [char]34
         $ret = [System.Text.Encoding]::Unicode.GetBytes($formattedpwd)
         return $ret
     }
 
-    [byte[]] $bpwd = BuildBytePwd $NewPass
+    if ($NewPassword) {
+        [byte[]]$NewPassword = ConvertTo-LDAPPassword $NewPassword
+    }
 
-    $passwordModification = New-Object `
-        -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
-    $passwordModification.Name = 'unicodePwd'
-    $passwordModification.Add($bpwd) | Out-Null
-    $passwordModification.Operation = 'Replace'
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -gt 0) {
+        $apply = $false
+        if ($NoConfirmation.IsPresent) {
+            $apply = $true
+        }
+        while ($apply -eq $false) {
+            Write-Host "About to set password on the following objects:" `
+                -ForegroundColor Yellow
+            foreach ($ldapObject in $ldapObjectList) {
+                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+            }
+            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+                -ForegroundColor Yellow
 
-    $modifyRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.ModifyRequest `
-        -ArgumentList $DistinguishedName, $passwordModification
-
-    $Script:ldapServer.SendRequest($modifyRequest) | Out-Null
+            $answer = Select-LDAPObject -ObjectList $ldapObjectList
+            if ($answer -eq 'Apply') {
+                $apply = $true
+            } else {
+                $ldapObjectList = $answer
+            }
+            if ($ldapObjectList.Count -eq 0) {
+                $apply = $true
+            }
+        }
+        foreach ($ldapObject in $ldapObjectList) {
+            $objName = $ldapObject.CanonicalName
+            try {
+                if ($NewPassword) {
+                    $newPass = $NewPassword
+                } else {
+                    $newRandomPassword = "!$(Get-Random)Password$(Get-Random)!" # TODO More of an actual 
+                                                                                # random password...
+                    [byte[]]$newPass = ConvertTo-LDAPPassword `
+                        -Password ($newRandomPassword | ConvertTo-SecureString -AsPlainText)
+                }
+                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                    -AttributeName 'unicodePwd' -Values $newPass -ErrorAction Stop
+                $msg = "'$objName' password set"
+                if (-not $NewPassword) {
+                    $msg = "$msg to $newRandomPassword"
+                }
+                Write-Host $msg
+                $msg = "'$objName' password set"
+                Write-Log -Message $msg -NoEcho
+            } catch {
+                $err = $_.ToString()
+                $msg = "Error setting '$objName' password: $err"
+                Write-Log -Message $msg -Level Error
+            }
+        }
+    } else {
+        Write-Host "Could not find objects to modify."
+    }
 }
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
