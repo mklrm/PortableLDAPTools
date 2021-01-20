@@ -392,6 +392,38 @@ function Get-LDAPObjectByAttributeValue
     }
 }
 
+function Select-LDAPObjectTarget
+{
+    Param(
+        [Parameter(Mandatory=$true)]$LDAPObjectList,
+        [Parameter(Mandatory=$true)][String]$Title
+    )
+    # TODO Incorporate in Select-LDAPObject if doable
+    $apply = $false
+    if ($NoConfirmation.IsPresent) {
+        $apply = $true
+    }
+    while ($apply -eq $false) {
+        Write-Host $Title -ForegroundColor Yellow
+        foreach ($ldapObject in $LDAPObjectList) {
+            Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+        }
+        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
+            -ForegroundColor Yellow
+
+        $answer = Select-LDAPObject -ObjectList $LDAPObjectList
+        if ($answer -eq 'Apply') {
+            $apply = $true
+        } else {
+            $ldapObjectList = $answer
+        }
+        if ($ldapObjectList.Count -eq 0) {
+            $apply = $true
+        }
+    }
+    return $LDAPObjectList
+}
+
 function Set-LDAPObjectAttributeValue
 {
     Param(
@@ -409,51 +441,28 @@ function Set-LDAPObjectAttributeValue
         return
     }
 
-    # TODO I still have way too much almost identical code for 
-    # picking the objects in these functions, move it out
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -gt 0) {
-        $apply = $false
-        if ($NoConfirmation.IsPresent) {
-            $apply = $true
-        }
-        while ($apply -eq $false) {
-            Write-Host "About to set attribute '$Attribute' value to '$Value' on the following objects:" `
-                -ForegroundColor Yellow
-            foreach ($ldapObject in $ldapObjectList) {
-                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-            }
-            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-                -ForegroundColor Yellow
-
-            $answer = Select-LDAPObject -ObjectList $ldapObjectList
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $ldapObjectList = $answer
-            }
-            if ($ldapObjectList.Count -eq 0) {
-                $apply = $true
-            }
-        }
-        foreach ($ldapObject in $ldapObjectList) {
-            $objName = $ldapObject.CanonicalName
-            $oldValue = $ldapObject.$Attribute -join ', '
-            try {
-                $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Log -Message $msg
-                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
-                    -AttributeName $Attribute -Values $Value -ErrorAction Stop
-                $msg = "'$objName' '$Attribute' set to '$Value'"
-                Write-Log -Message $msg
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
-                Write-Log -Message $msg -Level Error
-            }
-        }
-    } else {
+    if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
+        return
+    }
+    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+        -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        $oldValue = $ldapObject.$Attribute -join ', '
+        try {
+            $msg = "'$objName' '$Attribute' is '$oldValue'"
+            Write-Log -Message $msg
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                -AttributeName $Attribute -Values $Value -ErrorAction Stop
+            $msg = "'$objName' '$Attribute' set to '$Value'"
+            Write-Log -Message $msg
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
+            Write-Log -Message $msg -Level Error
+        }
     }
 }
 
@@ -475,49 +484,28 @@ function Add-LDAPObjectAttributeValue
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -gt 0) {
-        $apply = $false
-        if ($NoConfirmation.IsPresent) {
-            $apply = $true
-        }
-        while ($apply -eq $false) {
-            Write-Host "About to add attribute '$Attribute' value '$Value' to the following objects:" `
-                -ForegroundColor Yellow
-            foreach ($ldapObject in $ldapObjectList) {
-                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-            }
-            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-                -ForegroundColor Yellow
-
-            $answer = Select-LDAPObject -ObjectList $ldapObjectList
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $ldapObjectList = $answer
-            }
-            if ($ldapObjectList.Count -eq 0) {
-                $apply = $true
-            }
-        }
-        foreach ($ldapObject in $ldapObjectList) {
-            $objName = $ldapObject.canonicalname
-            $valName = $Value -join ', '
-            $oldValue = $ldapObject.$Attribute -join ', '
-            try {
-                $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Log -Message $msg
-                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
-                    -AttributeName $Attribute -Values $Value -ErrorAction Stop
-                $msg = "'$objName' '$Attribute' value '$valName' added"
-                Write-Log -Message $msg
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
-                Write-Log -Message $msg -Level Error
-            }
-        }
-    } else {
+    if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
+        return
+    }
+    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+        -Title "About to add attribute '$Attribute' to '$Value' on the following objects:"
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.canonicalname
+        $valName = $Value -join ', '
+        $oldValue = $ldapObject.$Attribute -join ', '
+        try {
+            $msg = "'$objName' '$Attribute' is '$oldValue'"
+            Write-Log -Message $msg
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
+                -AttributeName $Attribute -Values $Value -ErrorAction Stop
+            $msg = "'$objName' '$Attribute' value '$valName' added" # TODO Maybe report the whole new value set
+            Write-Log -Message $msg
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
+            Write-Log -Message $msg -Level Error
+        }
     }
 }
 
@@ -540,48 +528,27 @@ function Remove-LDAPObjectAttributeValue
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -gt 0) {
-        $apply = $false
-        if ($NoConfirmation.IsPresent) {
-            $apply = $true
-        }
-        while ($apply -eq $false) {
-            Write-Host "About to remove attribute '$Attribute' value '$Value' from the following objects:" `
-                -ForegroundColor Yellow
-            foreach ($ldapObject in $ldapObjectList) {
-                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-            }
-            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-                -ForegroundColor Yellow
-
-            $answer = Select-LDAPObject -ObjectList $ldapObjectList
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $ldapObjectList = $answer
-            }
-            if ($ldapObjectList.Count -eq 0) {
-                $apply = $true
-            }
-        }
-        foreach ($ldapObject in $ldapObjectList) {
-            $objName = $ldapObject.CanonicalName
-            $oldValue = $ldapObject.$Attribute -join ', '
-            try {
-                $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Log -Message $msg
-                Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
-                    -AttributeName $Attribute -Values $Value
-                $msg = "'$objName' '$Attribute' '$Value' removed"
-                Write-Log -Message $msg
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
-                Write-Log -Message $msg -Level Error
-            }
-        }
-    } else {
+    if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
+        return
+    }
+    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+        -Title "About to remove attribute '$Attribute' from '$Value' the following objects:"
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        $oldValue = $ldapObject.$Attribute -join ', '
+        try {
+            $msg = "'$objName' '$Attribute' is '$oldValue'"
+            Write-Log -Message $msg
+            Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
+                -AttributeName $Attribute -Values $Value
+            $msg = "'$objName' '$Attribute' '$Value' removed"
+            Write-Log -Message $msg
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
+            Write-Log -Message $msg -Level Error
+        }
     }
 }
 
@@ -601,48 +568,26 @@ function Clear-LDAPObjectAttributeValue
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -gt 0) {
-        $apply = $false
-        if ($NoConfirmation.IsPresent) {
-            $apply = $true
-        }
-        while ($apply -eq $false) {
-            Write-Host "About to remove all values from attribute '$Attribute' from the following objects:" `
-                -ForegroundColor Yellow
-            foreach ($ldapObject in $ldapObjectList) {
-                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-            }
-            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-                -ForegroundColor Yellow
-
-            $answer = Select-LDAPObject -ObjectList $ldapObjectList
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $ldapObjectList = $answer
-            }
-            if ($ldapObjectList.Count -eq 0) {
-                $apply = $true
-            }
-        }
-        foreach ($ldapObject in $ldapObjectList) {
-            $objName = $ldapObject.CanonicalName
-            $oldValue = $ldapObject.$Attribute -join ', '
-            try {
-                $msg = "'$objName' '$Attribute' is '$oldValue'"
-                Write-Log -Message $msg
-                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
-                    -AttributeName $Attribute -Values $ldapObject.$Attribute -ErrorAction Stop
-                $msg = "'$objName' '$Attribute' cleared"
-                Write-Log -Message $msg
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error clearing '$objName' '$Attribute': $err"
-                Write-Log -Message $msg -Level Error
-            }
-        }
-    } else {
+    if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
+    }
+    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+        -Title "About to remove all values from attribute '$Attribute' from the following objects:"
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        $oldValue = $ldapObject.$Attribute -join ', '
+        try {
+            $msg = "'$objName' '$Attribute' is '$oldValue'"
+            Write-Log -Message $msg
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
+                -AttributeName $Attribute -Values $ldapObject.$Attribute -ErrorAction Stop
+            $msg = "'$objName' '$Attribute' cleared"
+            Write-Log -Message $msg
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error clearing '$objName' '$Attribute': $err"
+            Write-Log -Message $msg -Level Error
+        }
     }
 }
 
@@ -871,58 +816,37 @@ function Reset-ADObjectPassword
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -gt 0) {
-        $apply = $false
-        if ($NoConfirmation.IsPresent) {
-            $apply = $true
-        }
-        while ($apply -eq $false) {
-            Write-Host "About to set password on the following objects:" `
-                -ForegroundColor Yellow
-            foreach ($ldapObject in $ldapObjectList) {
-                Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-            }
-            Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-                -ForegroundColor Yellow
-
-            $answer = Select-LDAPObject -ObjectList $ldapObjectList
-            if ($answer -eq 'Apply') {
-                $apply = $true
-            } else {
-                $ldapObjectList = $answer
-            }
-            if ($ldapObjectList.Count -eq 0) {
-                $apply = $true
-            }
-        }
-        foreach ($ldapObject in $ldapObjectList) {
-            $objName = $ldapObject.CanonicalName
-            try {
-                if ($NewPassword) {
-                    $newPass = $NewPassword
-                } else {
-                    $newRandomPassword = "!$(Get-Random)Password$(Get-Random)!" # TODO More of an actual 
-                                                                                # random password...
-                    [byte[]]$newPass = ConvertTo-LDAPPassword `
-                        -Password ($newRandomPassword | ConvertTo-SecureString -AsPlainText)
-                }
-                Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
-                    -AttributeName 'unicodePwd' -Values $newPass -ErrorAction Stop
-                $msg = "'$objName' password set"
-                if (-not $NewPassword) {
-                    $msg = "$msg to $newRandomPassword"
-                }
-                Write-Host $msg
-                $msg = "'$objName' password set"
-                Write-Log -Message $msg -NoEcho
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error setting '$objName' password: $err"
-                Write-Log -Message $msg -Level Error
-            }
-        }
-    } else {
+    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+        -Title "About to set password on the following objects:"
+    if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
+        return
+    }
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        try {
+            if ($NewPassword) {
+                $newPass = $NewPassword
+            } else {
+                $newRandomPassword = "!$(Get-Random)Password$(Get-Random)!" # TODO More of an actual 
+                                                                            # random password...
+                [byte[]]$newPass = ConvertTo-LDAPPassword `
+                    -Password ($newRandomPassword | ConvertTo-SecureString -AsPlainText)
+            }
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                -AttributeName 'unicodePwd' -Values $newPass -ErrorAction Stop
+            $msg = "'$objName' password set"
+            if (-not $NewPassword) {
+                $msg = "$msg to $newRandomPassword"
+            }
+            Write-Host $msg
+            $msg = "'$objName' password set"
+            Write-Log -Message $msg -NoEcho
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error setting '$objName' password: $err"
+            Write-Log -Message $msg -Level Error
+        }
     }
 }
 
