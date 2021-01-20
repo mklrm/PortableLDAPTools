@@ -2,9 +2,6 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
-# TODO Add logging to text file, default location to profile or home directory 
-# depending on OS, allow to be configured.
-
 # TODO Add a function that returns a list of log files
 
 # TODO Regenerate the log file name when running a query, inform if it changes (day changes)
@@ -172,7 +169,7 @@ function Set-LDAPObject
         $Script:ldapServer = Connect-LDAPServer
     }
 
-    $ldapServer.SendRequest($modifyRequest) | out-null
+    $ldapServer.SendRequest($modifyRequest) | Out-Null
     # TODO The above returns something like:
     # RequestId    :
     # MatchedDN    :
@@ -187,7 +184,7 @@ function Set-LDAPObject
 function ConvertTo-CanonicalName
 {
     Param(
-        [Parameter(Mandatory=$true)][String[]]$DistinguishedName
+        [Parameter(Mandatory=$false)][String[]]$DistinguishedName
         
     )
     foreach ($dn in $DistinguishedName) {
@@ -206,6 +203,27 @@ function ConvertTo-CanonicalName
             $CanonicalName = $CanonicalName -replace '/$'
         }
         $CanonicalName
+    }
+}
+
+function ConvertTo-DistinguishedName
+{
+    param(
+        [parameter(mandatory=$false)][String[]]$CanonicalName,
+        [parameter(mandatory=$false)]
+        [validateset('OU', 'CN')]
+        [String]$LeafNamingAttribute = 'OU'
+    )
+    # cn=test user 3,ou=users,ou=org,dc=satan,dc=local
+    # satan.local/org/users/test user 3
+    foreach ($cn in $CanonicalName) {
+        $domain, $path = $cn -split '/'
+        $domain = $domain -split '\.'
+        [Array]::Reverse($domain)
+        $domain = ",DC=$($domain -join ',DC=')"
+        [Array]::Reverse($path)
+        $path = "$LeafNamingAttribute=$($path -join ',OU=')"
+        "$path$domain"
     }
 }
 
@@ -392,13 +410,12 @@ function Get-LDAPObjectByAttributeValue
     }
 }
 
-function Select-LDAPObjectTarget
+function Select-LDAPTargetObject
 {
     Param(
         [Parameter(Mandatory=$true)]$LDAPObjectList,
         [Parameter(Mandatory=$true)][String]$Title
     )
-    # TODO Incorporate in Select-LDAPObject if doable
     $apply = $false
     if ($NoConfirmation.IsPresent) {
         $apply = $true
@@ -408,9 +425,12 @@ function Select-LDAPObjectTarget
         foreach ($ldapObject in $LDAPObjectList) {
             Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
         }
-        Write-Host '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel' `
-            -ForegroundColor Yellow
-
+        if ($PSVersionTable.OS -match 'Windows') {
+            $footer ='[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+        } else {
+            $footer ='[A]pply, Esc to cancel'
+        }
+        Write-Host $footer -ForegroundColor Yellow
         $answer = Select-LDAPObject -ObjectList $LDAPObjectList
         if ($answer -eq 'Apply') {
             $apply = $true
@@ -446,7 +466,7 @@ function Set-LDAPObjectAttributeValue
         Write-Host "Could not find objects to modify."
         return
     }
-    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -488,7 +508,7 @@ function Add-LDAPObjectAttributeValue
         Write-Host "Could not find objects to modify."
         return
     }
-    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to add attribute '$Attribute' to '$Value' on the following objects:"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.canonicalname
@@ -532,7 +552,7 @@ function Remove-LDAPObjectAttributeValue
         Write-Host "Could not find objects to modify."
         return
     }
-    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove attribute '$Attribute' from '$Value' the following objects:"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -571,7 +591,7 @@ function Clear-LDAPObjectAttributeValue
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
     }
-    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -764,8 +784,46 @@ function Remove-LDAPGroupMember
 function Add-LDAPObject
 {
     Param(
-        [Parameter(Mandatory=$false)][String]$ObjectClass
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$Name,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$OrganizationalUnit,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$ObjectClass,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][Hashtable]$AdditionalAttributes
     )
+
+    if ($null -eq $Script:ldapServer) {
+        $Script:ldapServer = Connect-LDAPServer
+    }
+
+    if ($OrganizationalUnit -notmatch ',DC=') { # TODO More robust test
+        # Assume this is a CanonicalName
+        $OrganizationalUnit = ConvertTo-DistinguishedName -CanonicalName $OrganizationalUnit
+    }
+    
+    $DistinguishedName = "CN=$Name,$OrganizationalUnit"
+
+    $addRequest = New-Object `
+        -TypeName System.DirectoryServices.Protocols.AddRequest `
+        -ArgumentList $DistinguishedName, $ObjectClass
+    foreach ($attribute in $AdditionalAttributes.Keys) {
+        $newAttribute = New-Object `
+            -TypeName System.DirectoryServices.Protocols.DirectoryAttribute `
+            -ArgumentList $attribute, $AdditionalAttributes[$attribute]
+        $addRequest.Attributes.Add($newAttribute) | Out-Null
+    }
+
+    $ldapServer.SendRequest($addRequest) | Out-Null
 }
 
 function Remove-LDAPObject
@@ -816,7 +874,7 @@ function Reset-ADObjectPassword
     }
 
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
-    $ldapObjectList = Select-LDAPObjectTarget -LDAPObjectList $ldapObjectList `
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set password on the following objects:"
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
