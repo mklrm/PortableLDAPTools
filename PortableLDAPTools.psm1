@@ -6,6 +6,8 @@
 
 # TODO Regenerate the log file name when running a query, inform if it changes (day changes)
 
+# TODO Readable group membership (Not a list of distinguishednames)
+
 # TODO Recursive group membership handleification
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
@@ -374,8 +376,10 @@ function Get-LDAPFuzzyQueryFilter
         if ($ObjectClass) {
             $filter += "(&(objectclass=$ObjectClass)"
         }
-        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)" + `
-            "(userprincipalname=$sterm)(mail=$sterm)"
+        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)"
+        if ($sTerm -match '@') {
+            $filter += "(userprincipalname=$sTerm)(mail=$sTerm)"
+        }
         if ($sTerm -match '\s') {
             $sTermSplit = $sTerm -split '\s'
             if ($sTermSplit.Count -eq 2) {
@@ -529,8 +533,8 @@ function Select-LDAPTargetObject
 
 function Set-LDAPObjectAttributeValue
 {
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+    param(
+        [parameter(Mandatory=$false)][string[]]$searchterm,
         [Parameter(Mandatory=$false)][String]$Attribute,
         [Parameter(Mandatory=$false)][String]$Value,
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
@@ -941,6 +945,36 @@ function Reset-ADObjectPassword
     }
 }
 
+function Search-LDAPObjectAndRemove
+{
+    param(
+        [Parameter(Mandatory=$false)][string[]]$SearchTerm
+    )
+    if (-not $SearchTerm) {
+         Write-Host "Usage: LDAPRemObj SearchTerm(s)"
+         return
+    }
+    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -lt 1) {
+        Write-Host "Could not find objects to modify."
+        return
+    }
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
+        -Title "About to remove the following object(s):"
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        try {
+            Remove-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -ErrorAction Stop
+            $msg = "'$objName' removed"
+            Write-Log -Message $msg
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error removing '$objName': $err"
+            Write-Log -Message $msg -Level Error
+        }
+    }
+}
+
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
 Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
 Set-Alias -Name LDAPGetByAttributeValue -Value Get-LDAPObjectByAttribute
@@ -951,6 +985,6 @@ Set-Alias -Name LDAPClrVal -Value Clear-LDAPObjectAttributeValue
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
 Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
 Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
-Set-Alias -Name LDAPRemObj -Value Remove-LDAPObject
+Set-Alias -Name LDAPRemObj -Value Search-LDAPObjectAndRemove
 Set-Alias -Name LDAPSetPass -Value Reset-ADObjectPassword
 
