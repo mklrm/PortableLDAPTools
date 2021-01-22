@@ -121,11 +121,19 @@ function Send-LDAPRequest
     if ($null -eq $Script:ldapServer) {
         $Script:ldapServer = Connect-LDAPServer
     }
-    # TODO Try-catch:
-    $Script:ldapServer.SendRequest($Request) | ForEach-Object {
-        if ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
-            # NOTE It's likely returning an object from the LDAP...
-            $_
+    try {
+        $Script:ldapServer.SendRequest($Request) | ForEach-Object {
+            if ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
+                # NOTE It's likely returning an object...
+                $_
+            }
+        }
+    } catch {
+        if ($_.Exception.Message -match '"The supplied credential is invalid."') {
+            Write-Host "The supplied credential is invalid."
+            $Script:credential = $null
+            $script:ldapServer = Connect-LDAPServer
+            Send-LDAPRequest -Request $Request
         }
     }
     # TODO Otherwise something like...
