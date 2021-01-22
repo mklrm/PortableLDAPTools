@@ -6,6 +6,8 @@
 
 # TODO Regenerate the log file name when running a query, inform if it changes (day changes)
 
+# TODO Recursive group membership handleification
+
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
 $configFile = "$PSScriptRoot\$scriptFileName.xml"
@@ -372,7 +374,8 @@ function Get-LDAPFuzzyQueryFilter
         if ($ObjectClass) {
             $filter += "(&(objectclass=$ObjectClass)"
         }
-        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)"
+        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)" + `
+            "(userprincipalname=$sterm)(mail=$sterm)"
         if ($sTerm -match '\s') {
             $sTermSplit = $sTerm -split '\s'
             if ($sTermSplit.Count -eq 2) {
