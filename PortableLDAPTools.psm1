@@ -123,11 +123,16 @@ function Send-LDAPRequest
     }
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
-            if ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
-                # NOTE It's likely returning an object...
+            if ($_ -is [System.DirectoryServices.Protocols.AddResponse]) {
+                # NOTE Be silent for now
+            } elseif ($_ -is [System.DirectoryServices.Protocols.DeleteResponse]) {
+                # NOTE Be silent for now
+            } elseif ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
+                # NOTE It's likely returning an object from an ldap directory, 
+                # otherwise something we do not care about...
                 $_
             }
-        }
+         }
     } catch {
         if ($_.Exception.Message -match '"The supplied credential is invalid."') {
             Write-Host "The supplied credential is invalid."
@@ -136,7 +141,7 @@ function Send-LDAPRequest
             Send-LDAPRequest -Request $Request
         }
     }
-    # TODO Otherwise something like...
+    # NOTE ...which is here.
     # RequestId    :
     # MatchedDN    :
     # Controls     : {}
@@ -246,8 +251,11 @@ function Set-LDAPObject
 
 function Remove-LDAPObject
 {
+    Param(
+        [Parameter(Mandatory=$true)][String]$DistinguishedName
+    )
     $deleteRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.DeleteRequesta `
+        -TypeName System.DirectoryServices.Protocols.DeleteRequest `
         -ArgumentList $DistinguishedName
 
     Send-LDAPRequest -Request $deleteRequest
