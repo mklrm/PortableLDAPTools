@@ -29,9 +29,11 @@ $Script:ldapServer = $null
 
 $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
+$logFileNameFilter = "$scriptFileName-*.log"
 
 $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 $logFileFullName = "$pathMyDocuments\$logFileName"
+$logFileNameFullNameFilter = "$pathMyDocuments\$logFileNameFilter"
 
 if ($config.logFileFullName) {
     $logFileFullName = $config.logFileFullName
@@ -106,6 +108,10 @@ function Write-Log
     }
     $logMessage | Out-File -FilePath $logFileFullName `
         -Encoding $logFileEncoding -Append -Force
+}
+
+function Get-LDAPLog {
+    Get-ChildItem $logFileNameFullNameFilter
 }
 
 try {
