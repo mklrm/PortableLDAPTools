@@ -111,7 +111,7 @@ function Write-Log
 }
 
 function Get-LDAPLog {
-    Get-ChildItem $logFileNameFullNameFilter
+    Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | Sort-Object
 }
 
 try {
