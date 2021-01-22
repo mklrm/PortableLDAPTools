@@ -10,6 +10,8 @@
 
 # TODO Recursive group membership handleification
 
+# TODO Could move to some sort of Search-LDAPObjectAndSomethingSomething-format with function names
+
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
 $configFile = "$PSScriptRoot\$scriptFileName.xml"
@@ -461,7 +463,11 @@ function Get-LDAPObject
                 -SearchResultAttributeCollection $_.Attributes
         }
     }
-    $result | Sort-Object -Property canonicalname
+    if (-not $ReturnAttribute) {
+        $result | Sort-Object -Property canonicalname
+    } else {
+        $result | Select-Object $ReturnAttribute
+    }
 }
 
 function Get-LDAPObjectByAttribute
