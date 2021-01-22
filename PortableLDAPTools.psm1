@@ -112,6 +112,33 @@ try {
 
 Write-Log -Message "Logging to $logFileFullName"
 
+function Send-LDAPRequest
+{
+    Param(
+        [Parameter(Mandatory=$true)]$Request # TODO Rename and add type...
+    )
+
+    if ($null -eq $Script:ldapServer) {
+        $Script:ldapServer = Connect-LDAPServer
+    }
+    # TODO Try-catch:
+    $Script:ldapServer.SendRequest($Request) | ForEach-Object {
+        if ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
+            # NOTE It's likely returning an object from the LDAP...
+            $_
+        }
+    }
+    # TODO Otherwise something like...
+    # RequestId    :
+    # MatchedDN    :
+    # Controls     : {}
+    # ResultCode   : Success
+    # ErrorMessage :
+    # Referral     : {}
+    # Which Out-Null hides. But this also throws a proper error at least when you target a non-existing object.
+    # Look into it.
+}
+
 function Invoke-LDAPQuery
 {
     Param(
@@ -124,12 +151,53 @@ function Invoke-LDAPQuery
     $searchRequest = New-Object `
         -TypeName System.DirectoryServices.Protocols.SearchRequest `
         -ArgumentList $searchbase, $Filter, $scope, $attributeList
+    
+    Send-LDAPRequest -Request $searchRequest
+}
+
+function Add-LDAPObject
+{
+    Param(
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$Name,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$OrganizationalUnit,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][String]$ObjectClass,
+        [Parameter(
+            Mandatory=$true,
+            ValueFromPipelineByPropertyName=$true
+        )][Hashtable]$AdditionalAttributes
+    )
 
     if ($null -eq $Script:ldapServer) {
         $Script:ldapServer = Connect-LDAPServer
     }
 
-    $Script:ldapServer.SendRequest($searchRequest)
+    if ($OrganizationalUnit -notmatch ',DC=') { # TODO More robust test
+        # Assume this is a CanonicalName
+        $OrganizationalUnit = ConvertTo-DistinguishedName -CanonicalName $OrganizationalUnit
+    }
+    
+    $DistinguishedName = "CN=$Name,$OrganizationalUnit"
+
+    $addRequest = New-Object `
+        -TypeName System.DirectoryServices.Protocols.AddRequest `
+        -ArgumentList $DistinguishedName, $ObjectClass
+    foreach ($attribute in $AdditionalAttributes.Keys) {
+        $newAttribute = New-Object `
+            -TypeName System.DirectoryServices.Protocols.DirectoryAttribute `
+            -ArgumentList $attribute, $AdditionalAttributes[$attribute]
+        $addRequest.Attributes.Add($newAttribute) | Out-Null
+    }
+
+    Send-LDAPRequest -Request $addRequest
 }
 
 function Set-LDAPObject
@@ -165,20 +233,16 @@ function Set-LDAPObject
             -ArgumentList $DistinguishedName, $addModification
     }
 
-    if ($null -eq $Script:ldapServer) {
-        $Script:ldapServer = Connect-LDAPServer
-    }
+    Send-LDAPRequest -Request $modifyRequest
+}
 
-    $ldapServer.SendRequest($modifyRequest) | Out-Null
-    # TODO The above returns something like:
-    # RequestId    :
-    # MatchedDN    :
-    # Controls     : {}
-    # ResultCode   : Success
-    # ErrorMessage :
-    # Referral     : {}
-    # Which Out-Null hides. But this also throws a proper error at least when you target a non-existing object.
-    # Look into it.
+function Remove-LDAPObject
+{
+    $deleteRequest = New-Object `
+        -TypeName System.DirectoryServices.Protocols.DeleteRequesta `
+        -ArgumentList $DistinguishedName
+
+    Send-LDAPRequest -Request $deleteRequest
 }
 
 function ConvertTo-CanonicalName
@@ -779,56 +843,6 @@ function Remove-LDAPGroupMember
             Write-Host "Found no groups to remove members from."
         }
     }
-}
-
-function Add-LDAPObject
-{
-    Param(
-        [Parameter(
-            Mandatory=$true,
-            ValueFromPipelineByPropertyName=$true
-        )][String]$Name,
-        [Parameter(
-            Mandatory=$true,
-            ValueFromPipelineByPropertyName=$true
-        )][String]$OrganizationalUnit,
-        [Parameter(
-            Mandatory=$true,
-            ValueFromPipelineByPropertyName=$true
-        )][String]$ObjectClass,
-        [Parameter(
-            Mandatory=$true,
-            ValueFromPipelineByPropertyName=$true
-        )][Hashtable]$AdditionalAttributes
-    )
-
-    if ($null -eq $Script:ldapServer) {
-        $Script:ldapServer = Connect-LDAPServer
-    }
-
-    if ($OrganizationalUnit -notmatch ',DC=') { # TODO More robust test
-        # Assume this is a CanonicalName
-        $OrganizationalUnit = ConvertTo-DistinguishedName -CanonicalName $OrganizationalUnit
-    }
-    
-    $DistinguishedName = "CN=$Name,$OrganizationalUnit"
-
-    $addRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.AddRequest `
-        -ArgumentList $DistinguishedName, $ObjectClass
-    foreach ($attribute in $AdditionalAttributes.Keys) {
-        $newAttribute = New-Object `
-            -TypeName System.DirectoryServices.Protocols.DirectoryAttribute `
-            -ArgumentList $attribute, $AdditionalAttributes[$attribute]
-        $addRequest.Attributes.Add($newAttribute) | Out-Null
-    }
-
-    $ldapServer.SendRequest($addRequest) | Out-Null
-}
-
-function Remove-LDAPObject
-{
-    # TODO Probably better to do New-LDAPUser, New-LDAPGroup
 }
 
 function Reset-ADObjectPassword
