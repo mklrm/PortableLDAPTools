@@ -7,10 +7,13 @@
 # TODO Regenerate the log file name when running a query, inform if it changes (day changes)
 
 # TODO Readable group membership (Not a list of distinguishednames)
+#      Maybe return the members as objects and make canonicalname the string representation
 
 # TODO Recursive group membership handleification
 
 # TODO Could move to some sort of Search-LDAPObjectAndSomethingSomething-format with function names
+#      _SHOULD_ do so with the functions made for human consumption
+#      ...and Select- where that's applicable. There may be other options.
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
@@ -482,35 +485,19 @@ function Get-LDAPObject
     }
 }
 
-function Get-LDAPObjectByAttribute
-{
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
-    )
-
-    if (-not $Filter -and -not $Attribute) {
-        Write-Host "Usage: LDAPGet SearchTerm(s) SearchAttribute(s)"
-        Write-Host "Usage: LDAPGet SearchTerm(s) SearchAttribute(s) ReturnAttribute(s)"
-        Write-Host "     SearchTerm: Term to find objects by"
-        Write-Host "SearchAttribute: Attribute in which to look for SearchTerm"
-        Write-Host "ReturnAttribute: Which attributes to return per object"
-        return
-    }
-}
-
 function Get-LDAPObjectByAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
-        [Parameter(Mandatory=$false)][String]$AttributeValue
+        [Parameter(Mandatory=$false)][String[]]$AttributeValue
     )
+
+    # TODO AttributeValue should be able to use *-wildcards
 
     if (-not $SearchTerm -and -not $SearchAttribute -and -not $AttributeValue) {
         Write-Host "Usage: LDAPGetObjectByAttributeValue SearchAttribute(s) AttributeValue(s)"
-        Write-Host "SearchAttribute: Attribute(s) in which to look for AttributeValue(s)"
-        Write-Host " AttributeValue: Which values to look for int SearchAttribute(s)"
+        Write-Host "SearchAttribute: Attributes in which to look for AttributeValues"
+        Write-Host " AttributeValue: Which values to look for in SearchAttributes"
         return
     }
 }
@@ -559,7 +546,7 @@ function Set-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPSet SearchTerm(s) Attribute(s) Value"
+        Write-Host "Usage: LDAPSet SearchTerm(s) Attribute Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to set to the attribute"
@@ -601,7 +588,7 @@ function Add-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPAdd SearchTerm(s) Attribute(s) Value"
+        Write-Host "Usage: LDAPAdd SearchTerm(s) Attribute Value"
         Write-Host "SearchTerm: Term to find objects by"
         Write-Host " Attribute: Which attribute to modify"
         Write-Host "     Value: Value to add to the attribute"
@@ -644,11 +631,11 @@ function Remove-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
-        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s) Value(s)"
+        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute"
+        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute Value"
         Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to remove value(s) from"
-        Write-Host "     Value: Which values to remove from attribute, default (not passed) is all"
+        Write-Host " Attribute: Which attribute to remove value from"
+        Write-Host "     Value: Which value to remove from attribute"
         return
     }
 
@@ -686,9 +673,9 @@ function Clear-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute) {
-        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute(s)"
-        Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to remove all value(s) from"
+        Write-Host "Usage: LDAPClr SearchTerm(s) Attribute"
+        Write-Host "SearchTerm: Terms to find objects by"
+        Write-Host " Attribute: Which attribute to remove values from"
         return
     }
 
@@ -777,8 +764,8 @@ function Add-LDAPGroupMember
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
         Write-Host "Usage: LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
-        Write-Host " SearchTermGroup: Term to find groups by"
-        Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
+        Write-Host " SearchTermGroup: Terms to find groups"
+        Write-Host "SearchTermMember: Terms to find objects to add to groups"
         return
     }
 
@@ -840,8 +827,8 @@ function Remove-LDAPGroupMember
 
     if (-not $SearchTermGroup -and -not $SearchTermMember) {
         Write-Host "Usage: LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
-        Write-Host " SearchTermGroup: Term to find groups by"
-        Write-Host "SearchTermMember: Term to find member object(s) to remove from group by"
+        Write-Host " SearchTermGroup: Term to find groups"
+        Write-Host "SearchTermMember: Term to find objects to remove from groups"
         return
     }
 
@@ -937,7 +924,7 @@ function Reset-ADObjectPassword
     if (-not $SearchTerm) {
         Write-Host "Usage: LDAPSetPass SearchTerm(s)"
         Write-Host "Usage: LDAPSetPass SearchTerm(s) NewPassword"
-        Write-Host " SearchTerm: Term to find objects by"
+        Write-Host " SearchTerm: Term to find objects"
         Write-Host "NewPassword: Automatically generated if not provided"
         return
     }
@@ -1001,8 +988,9 @@ function Search-LDAPObjectAndRemove
         [Parameter(Mandatory=$false)][string[]]$SearchTerm
     )
     if (-not $SearchTerm) {
-         Write-Host "Usage: LDAPRemObj SearchTerm(s)"
-         return
+        Write-Host "Usage: LDAPRemObj SearchTerm(s)"
+        Write-Host " SearchTerm: Terms to find objects to remove"
+        return
     }
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
@@ -1014,7 +1002,8 @@ function Search-LDAPObjectAndRemove
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         try {
-            Remove-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -ErrorAction Stop
+            Remove-LDAPObject -DistinguishedName $ldapObject.DistinguishedName `
+                -ErrorAction Stop
             $msg = "'$objName' removed"
             Write-Log -Message $msg
         } catch {
