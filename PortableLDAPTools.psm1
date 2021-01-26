@@ -451,8 +451,13 @@ function Get-LDAPObject
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute = '*'
     )
+
+    # TODO There's probably a way to only write out specific default attributes
+    # as cmdlets, or rather objetcs are tend to do. I seem to recall that requires 
+    # defining a new class for the object which might not be possible on older 
+    # versions of powershell.
 
     if (-not $SearchTerm) {
         Write-Host "Usage: LDAPGet SearchTerm(s)"
@@ -466,7 +471,8 @@ function Get-LDAPObject
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
             $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
+                -SearchResultAttributeCollection $_.Attributes | `
+                    Select-Object -Property $ReturnAttribute
         }
     }
     if (-not $ReturnAttribute) {
@@ -715,9 +721,18 @@ function Select-LDAPGroupMemberModificationTarget
     param(
         [parameter(mandatory=$false)]$LDAPGroupList,
         [parameter(mandatory=$false)]$LDAPMemberList,
-        [parameter(mandatory=$false)]$OperationDescription,
+        [parameter(mandatory=$True)]
+        [ValidateSet('Add','Remove')]$Operation,
         [parameter(mandatory=$false)]$Instructions
     )
+
+    if ($Operation -eq 'Add') {
+        $operationDescription = "About to add group members:"
+        $direction = 'to'
+    } elseif ($Operation -eq 'Remove') {
+        $operationDescription = "About to remove group members:"
+        $direction = 'from'
+    }
 
     $membershipMap = @()
     foreach ($ldapGroup in $LDAPGroupList) {
@@ -725,16 +740,19 @@ function Select-LDAPGroupMemberModificationTarget
             $membershipMap += [PSCustomObject]@{
                 Group = $ldapGroup
                 Member = $ldapMember
-                Name = "$($ldapGroup.canonicalname) -> $($ldapMember.canonicalname)"
+                Name = "$($ldapGroup.canonicalname) - $($ldapMember.canonicalname)"
             }
         }
     }
+    $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
     $apply = $false
     while ($apply -eq $false) {
         Write-Host $OperationDescription -ForegroundColor Yellow
         foreach ($entry in $membershipMap) {
-            Write-Host "    $($entry.Group.canonicalname) -> $($entry.Member.canonicalname)" `
-                -ForegroundColor Green
+            $member = "'$($entry.Member.canonicalname)'"
+            $member = $member.PadRight($topLength + 2) # The 2 is the ' surrounding $member
+            $group = "'$($entry.Group.canonicalname)'"
+            Write-Host "    $member $direction $group" -ForegroundColor Green
         }
         Write-Host $Instructions -ForegroundColor Yellow
         $answer = Select-LDAPObject -ObjectList $membershipMap -DisplayProperty Name
@@ -764,8 +782,6 @@ function Add-LDAPGroupMember
         return
     }
 
-    $operationDescription = "About to add group members:"
-
     $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
     if ($PSVersionTable.OS -notmatch 'Windows') {
         $instructions = '[A]pply, Esc to cancel'
@@ -784,7 +800,7 @@ function Add-LDAPGroupMember
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         $addToMap = Select-LDAPGroupMemberModificationTarget `
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
-            -OperationDescription $operationDescription -Instructions $instructions
+            -Operation 'Add' -Instructions $instructions
         foreach ($addtoEntry in $addToMap) {
             $groupDN = $addtoEntry.Group.DistinguishedName
             $memberDN = $addtoEntry.Member.DistinguishedName
@@ -829,8 +845,6 @@ function Remove-LDAPGroupMember
         return
     }
 
-    $operationDescription = "About to remove group members:"
-
     $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
     if ($PSVersionTable.OS -notmatch 'Windows') {
         $instructions = '[A]pply, Esc to cancel'
@@ -849,7 +863,7 @@ function Remove-LDAPGroupMember
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         $addToMap = Select-LDAPGroupMemberModificationTarget `
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
-            -OperationDescription $operationDescription -Instructions $instructions
+            -Operation 'Remove' -Instructions $instructions
         foreach ($addtoEntry in $addToMap) {
             $groupDN = $addtoEntry.Group.DistinguishedName
             $memberDN = $addtoEntry.Member.DistinguishedName
