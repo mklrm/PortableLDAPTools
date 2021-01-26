@@ -894,6 +894,31 @@ function Remove-LDAPGroupMember
     }
 }
 
+function Get-RandomString
+{
+    Param(
+        [Parameter(Mandatory=$false)][Int]$Length = 16
+    )
+    # Basic idea largely stolen from:
+    # https://devblogs.microsoft.com/scripting/generate-random-letters-with-powershell/
+    $letterRange = (65..90) + (97..122)
+    $specialCharacters = '!@#$%^&*()_+=-<>/\' -split '' | Where-Object { $_ }
+    $charArray = 1..$Length | ForEach-Object {
+        switch (Get-Random -Maximum 3) {
+            0 {
+                [char]($letterRange | Get-Random)
+            }
+            1 {
+                $specialCharacters | Get-Random
+            }
+            2 {
+                Get-Random -Maximum 9
+            }
+        }
+    }
+    $charArray -join ''
+}
+
 function Reset-ADObjectPassword
 {
     Param(
@@ -949,8 +974,7 @@ function Reset-ADObjectPassword
             if ($NewPassword) {
                 $newPass = $NewPassword
             } else {
-                $newRandomPassword = "!$(Get-Random)Password$(Get-Random)!" # TODO More of an actual 
-                                                                            # random password...
+                $newRandomPassword = Get-RandomString
                 [byte[]]$newPass = ConvertTo-LDAPPassword `
                     -Password ($newRandomPassword | ConvertTo-SecureString -AsPlainText)
             }
