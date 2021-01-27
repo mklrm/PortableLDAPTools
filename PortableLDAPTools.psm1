@@ -15,6 +15,15 @@
 #      _SHOULD_ do so with the functions made for human consumption
 #      ...and Select- where that's applicable. There may be other options.
 
+# TODO Add a summary of what the function does at the top of each help text
+
+# TODO Add -NoConfirmation to the add and remove group member functions, 
+#      probably might as well add it to some others too.
+
+# TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
+
+using namespace System.Collections.Specialized
+
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
 $configFile = "$PSScriptRoot\$scriptFileName.xml"
@@ -126,6 +135,31 @@ try {
 }
 
 Write-Log -Message "Logging to $logFileFullName"
+
+function Write-Help
+{
+    Param(
+        [Parameter(Mandatory=$true)][String[]]$Usage,
+        [Parameter(Mandatory=$true)]$Parameter
+    )
+    $colorUsgTitle = 'Green'
+    $colorUsgMessage = $Host.UI.RawUI.ForegroundColor
+    $colorMsgTitle = 'Yellow'
+    $colorMsgMessage = $Host.UI.RawUI.ForegroundColor
+    Write-Host
+    foreach ($msg in $Usage) {
+        Write-Host "Usage: " -ForegroundColor $colorUsgTitle -NoNewline
+        Write-Host $msg -ForegroundColor $colorUsgMessage
+    }
+    Write-Host
+    $topLength = ($Parameter.Keys | Measure-Object -Maximum -Property Length).Maximum
+    foreach ($param in $Parameter.Keys) {
+        Write-Host "$($param): ".PadLeft($topLength + 2) `
+            -ForegroundColor $colorMsgTitle -NoNewline
+        Write-Host $Parameter.$param -ForegroundColor $colorMsgMessage
+    }
+    Write-Host
+}
 
 function Send-LDAPRequest
 {
@@ -407,6 +441,31 @@ function Get-LDAPFuzzyQueryFilter
     return $filters
 }
 
+function Get-LDAPAttributeValueQueryFilter
+{
+    Param(
+        [Parameter(Mandatory=$true)][String[]]$SearchAttribute,
+        [Parameter(Mandatory=$false)][String[]]$AttributeValue = "*",
+        [Parameter(Mandatory=$false)][String]$ObjectClass
+    )
+    
+    $filter = ''
+    if ($ObjectClass) {
+        $filter += "(&(objectclass=$ObjectClass)"
+    }
+    $filter += "(|"
+    foreach ($sAttr in $SearchAttribute) {
+        foreach ($vAttr in $AttributeValue) {
+            $filter += "($sAttr=$vAttr)"
+        }
+    }
+    $filter += ')'
+    if ($ObjectClass) {
+        $filter += ')'
+    }
+    return $filter
+}
+
 function Select-LDAPObject
 {
     Param(
@@ -463,10 +522,11 @@ function Get-LDAPObject
     # versions of powershell.
 
     if (-not $SearchTerm) {
-        Write-Host "Usage: LDAPGet SearchTerm(s)"
-        Write-Host "Usage: LDAPGet SearchTerm(s) ReturnAttribute(s)"
-        Write-Host "     SearchTerm: Term to find objects by"
-        Write-Host "ReturnAttribute: Which attributes to return per object"
+        $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = 'Term to find objects by'
+        $parameters['ReturnAttribute'] = "Which attributes to return per object '*' which is the default, means any value other than null."
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -489,16 +549,34 @@ function Get-LDAPObjectByAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
-        [Parameter(Mandatory=$false)][String[]]$AttributeValue
+        [Parameter(Mandatory=$false)][String[]]$AttributeValue = "*",
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute = '*'
     )
 
-    # TODO AttributeValue should be able to use *-wildcards
-
-    if (-not $SearchTerm -and -not $SearchAttribute -and -not $AttributeValue) {
-        Write-Host "Usage: LDAPGetObjectByAttributeValue SearchAttribute(s) AttributeValue(s)"
-        Write-Host "SearchAttribute: Attributes in which to look for AttributeValues"
-        Write-Host " AttributeValue: Which values to look for in SearchAttributes"
+    if (-not $SearchAttribute) {
+        $usage = "LDAPGetBy SearchAttribute(s) AttributeValue(s) ReturnAttribute(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchAttribute'] = "Attributes in which to look for value"
+        $parameters['AttributeValue'] = "Which values to look for in attributes. '*' which is the default, means any value other than null."
+        $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' is again the default."
+        Write-Help -Usage $usage -Parameter $parameters
         return
+    }
+
+    $result = @()
+    $filters = Get-LDAPAttributeValueQueryFilter `
+        -SearchAttribute $SearchAttribute -AttributeValue $AttributeValue
+    foreach ($filter in $filters) {
+        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+            $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
+                -SearchResultAttributeCollection $_.Attributes | `
+                    Select-Object -Property $ReturnAttribute
+        }
+    }
+    if (-not $ReturnAttribute) {
+        $result | Sort-Object -Property canonicalname
+    } else {
+        $result | Select-Object $ReturnAttribute
     }
 }
 
@@ -546,10 +624,14 @@ function Set-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPSet SearchTerm(s) Attribute Value"
-        Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to modify"
-        Write-Host "     Value: Value to set to the attribute"
+        $usage = "LDAPSet SearchTerm(s) Attribute Value", 
+            "LDAPSet SearchTerm(s) Attribute Value -NoConfirmation"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Term to find objects by"
+        $parameters['Attribute'] = "Which attribute to modify"
+        $parameters['Value'] = "Value to set to the attribute"
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -588,10 +670,14 @@ function Add-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPAdd SearchTerm(s) Attribute Value"
-        Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to modify"
-        Write-Host "     Value: Value to add to the attribute"
+        $usage = "LDAPAdd SearchTerm(s) Attribute Value", 
+            "LDAPAdd SearchTerm(s) Attribute Value -NoConfirmation"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Term to find objects by"
+        $parameters['Attribute'] = "Which attribute to modify"
+        $parameters['Value'] = "Value to add to the attribute"
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -631,11 +717,14 @@ function Remove-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
-        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute"
-        Write-Host "Usage: LDAPRem SearchTerm(s) Attribute Value"
-        Write-Host "SearchTerm: Term to find objects by"
-        Write-Host " Attribute: Which attribute to remove value from"
-        Write-Host "     Value: Which value to remove from attribute"
+        $usage = "LDAPRem SearchTerm(s) Attribute Value", 
+            "LDAPRem SearchTerm(s) Attribute Value -NoConfirmation"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Term to find objects by"
+        $parameters['Attribute'] = "Which attribute to remove value from"
+        $parameters['Value'] = "Which value to remove from attribute"
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -664,7 +753,7 @@ function Remove-LDAPObjectAttributeValue
     }
 }
 
-function Clear-LDAPObjectAttributeValue
+function Clear-LDAPObjectAttribute
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -673,9 +762,11 @@ function Clear-LDAPObjectAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute) {
-        Write-Host "Usage: LDAPClr SearchTerm(s) Attribute"
-        Write-Host "SearchTerm: Terms to find objects by"
-        Write-Host " Attribute: Which attribute to remove values from"
+        $usage = "LDAPClr SearchTerm(s) Attribute"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Terms to find objects by"
+        $parameters['Attribute'] = "Which attribute to remove values from"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -757,15 +848,17 @@ function Select-LDAPGroupMemberModificationTarget
 
 function Add-LDAPGroupMember
 {
-    param(
-        [parameter(mandatory=$false)][string[]]$searchtermgroup,
-        [parameter(mandatory=$false)][string[]]$searchtermmember
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
-        Write-Host "Usage: LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
-        Write-Host " SearchTermGroup: Terms to find groups"
-        Write-Host "SearchTermMember: Terms to find objects to add to groups"
+        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTermGroup'] = "Terms to find groups"
+        $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -826,9 +919,11 @@ function Remove-LDAPGroupMember
     )
 
     if (-not $SearchTermGroup -and -not $SearchTermMember) {
-        Write-Host "Usage: LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
-        Write-Host " SearchTermGroup: Term to find groups"
-        Write-Host "SearchTermMember: Term to find objects to remove from groups"
+        $usage = "LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTermGroup'] = "Term to find groups"
+        $parameters['SearchTermMember'] = "Term to find objects to remove from groups"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -906,7 +1001,7 @@ function Get-RandomString
     $charArray -join ''
 }
 
-function Reset-ADObjectPassword
+function Reset-LDAPObjectPassword
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -922,10 +1017,11 @@ function Reset-ADObjectPassword
     # Password: <password>
     
     if (-not $SearchTerm) {
-        Write-Host "Usage: LDAPSetPass SearchTerm(s)"
-        Write-Host "Usage: LDAPSetPass SearchTerm(s) NewPassword"
-        Write-Host " SearchTerm: Term to find objects"
-        Write-Host "NewPassword: Automatically generated if not provided"
+        $usage = "LDAPSetPass SearchTerm(s)", "LDAPSetPass SearchTerm(s) NewPassword"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Term to find objects"
+        $parameters['NewPassword'] = "Automatically generated if not provided"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
 
@@ -988,8 +1084,10 @@ function Search-LDAPObjectAndRemove
         [Parameter(Mandatory=$false)][string[]]$SearchTerm
     )
     if (-not $SearchTerm) {
-        Write-Host "Usage: LDAPRemObj SearchTerm(s)"
-        Write-Host " SearchTerm: Terms to find objects to remove"
+        $usage = "LDAPRemObj SearchTerm(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Terms to find objects to remove"
+        Write-Help -Usage $usage -Parameter $parameters
         return
     }
     $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
@@ -1015,15 +1113,14 @@ function Search-LDAPObjectAndRemove
 }
 
 Set-Alias -Name LDAPGet -Value Get-LDAPObject
-Set-Alias -Name LDAPGetByAttribute -Value Get-LDAPObjectByAttribute
-Set-Alias -Name LDAPGetByAttributeValue -Value Get-LDAPObjectByAttribute
-Set-Alias -Name LDAPSetVal -Value Set-LDAPObjectAttributeValue
-Set-Alias -Name LDAPAddVal -Value Add-LDAPObjectAttributeValue
-Set-Alias -Name LDAPRemVal -Value Remove-LDAPObjectAttributeValue
-Set-Alias -Name LDAPClrVal -Value Clear-LDAPObjectAttributeValue
+Set-Alias -Name LDAPGetBy -Value Get-LDAPObjectByAttributeValue
+Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
+Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttributeValue
+Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttributeValue
+Set-Alias -Name LDAPClr -Value Clear-LDAPObjectAttribute
 Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
 Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
 Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
 Set-Alias -Name LDAPRemObj -Value Search-LDAPObjectAndRemove
-Set-Alias -Name LDAPSetPass -Value Reset-ADObjectPassword
+Set-Alias -Name LDAPSetPass -Value Reset-LDAPObjectPassword
 
