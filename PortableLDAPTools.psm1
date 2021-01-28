@@ -22,6 +22,10 @@
 
 # TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
 
+# TODO Still got issues with large groups (this is from a search result already converted to PSCustomObject):
+# member                :
+# member;range=0-1499   : {CN=test user Y 3493,OU=users,OU=org,DC=satan,DC=local, ...}
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 
@@ -214,8 +218,11 @@ function Invoke-LDAPQuery
         [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))'
     )
 
+    # NOTE Search paging explained here:
+    # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
+
     $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
-    $attributeList = @('*')
+    $attributeList = @('*') # TODO Add a parameter for this and don't default to everything...
 
     $searchRequest = New-Object `
         -TypeName System.DirectoryServices.Protocols.SearchRequest `
@@ -299,24 +306,15 @@ function Set-LDAPObject
         $modifyRequest = New-Object `
             -TypeName System.DirectoryServices.Protocols.ModifyRequest `
             -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
-    } elseif ($Operation -eq 'Add') {
-        $addModification = New-Object `
+    } else {
+        $modification = New-Object `
             -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
-        $addModification.Name = $AttributeName
-        $addModification.Add($Values) | Out-Null
-        $addModification.Operation = 'Add'
+        $modification.Name = $AttributeName
+        $modification.Add($Values) | Out-Null
+        $modification.Operation = $Operation
         $modifyRequest = New-Object `
             -TypeName System.DirectoryServices.Protocols.ModifyRequest `
-            -ArgumentList $DistinguishedName, $addModification
-    } elseif ($Operation -eq 'Delete') {
-        $addModification = New-Object `
-            -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
-        $addModification.Name = $AttributeName
-        $addModification.Add($Values) | Out-Null
-        $addModification.Operation = 'Delete'
-        $modifyRequest = New-Object `
-            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
-            -ArgumentList $DistinguishedName, $addModification
+            -ArgumentList $DistinguishedName, $modification
     }
 
     Send-LDAPRequest -Request $modifyRequest
@@ -970,13 +968,24 @@ function Remove-LDAPGroupMember
         $addToMap = Select-LDAPGroupMemberModificationTarget `
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
             -Operation 'Remove' -Instructions $instructions
+        # NOTE Since group member lists are cached there's always a 
+        #      possibility something else modifies it while this 
+        #      function is doing the same
+        $memberCache = @{}
         foreach ($addtoEntry in $addToMap) {
             $groupDN = $addtoEntry.Group.DistinguishedName
             $memberDN = $addtoEntry.Member.DistinguishedName
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
+            if (-not $memberCache[$groupDN]) {
+                $memberFilter = "(&(memberof=$groupDN))"
+                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter).Entries.distinguishedname)
+            }
             try {
-                if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
+                # TODO Work out the 'only 1500 members being returned with a group' issue, see 
+                #      if returning to something like this is quicker
+                #if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
+                if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
                     $msg = "'$groupCanName' does not contain '$groupMemName'"
                     Write-Log -Message $msg
                 } else {
