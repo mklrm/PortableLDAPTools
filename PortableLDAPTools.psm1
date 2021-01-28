@@ -41,7 +41,7 @@ $userName = $config.userName
 $authType = $config.authType
 $searchbase = $config.searchbase
 
-$pageSize = 100 # TODO Probably should read from config if available
+$pageSize = 5000 # TODO Probably should read from config if available
 
 $Script:credential = $null
 $Script:ldapServer = $null
@@ -903,13 +903,26 @@ function Add-LDAPGroupMember
         $addToMap = Select-LDAPGroupMemberModificationTarget `
             -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
             -Operation 'Add' -Instructions $instructions
+        # NOTE Since group member lists are cached there's always a 
+        #      possibility something else modifies it while this 
+        #      function is doing the same
+        $memberCache = @{}
         foreach ($addtoEntry in $addToMap) {
             $groupDN = $addtoEntry.Group.DistinguishedName
             $memberDN = $addtoEntry.Member.DistinguishedName
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
+            if (-not $memberCache[$groupDN]) {
+                $memberFilter = "(&(memberof=$groupDN))"
+                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter).Entries.distinguishedname)
+            }
             try {
-                if ($addtoEntry.Group.member -contains $addtoEntry.Member.distinguishedname) {
+                # TODO Work out the 'only 1500 members being returned with a group' issue, see 
+                #      if returning to something like this is quicker
+                # TODO Doing individual queries for members might well be faster than getting 
+                #      all group members
+                #if ($addtoEntry.Group.member -contains $addtoEntry.Member.distinguishedname) {
+                if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
                     $msg = "'$groupCanName' already contains '$groupMemName'"
                     Write-Log -Message $msg
                 } else {
@@ -984,6 +997,8 @@ function Remove-LDAPGroupMember
             try {
                 # TODO Work out the 'only 1500 members being returned with a group' issue, see 
                 #      if returning to something like this is quicker
+                # TODO Doing individual queries for members might well be faster than getting 
+                #      all group members
                 #if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
                 if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
                     $msg = "'$groupCanName' does not contain '$groupMemName'"
