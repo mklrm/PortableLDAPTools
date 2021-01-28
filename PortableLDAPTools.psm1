@@ -26,6 +26,11 @@
 # member                :
 # member;range=0-1499   : {CN=test user Y 3493,OU=users,OU=org,DC=satan,DC=local, ...}
 
+# TODO Could probably combine most of Add- and Remove-LDAPGroupMember to a single function
+
+# TODO Tell the user what they picked ([A]...) so if whatever operation takes a bit of 
+#      time they know somethings probably going to happen
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 
@@ -389,7 +394,15 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         $attributeObject = [PSCustomObject]@{}
         $attributeNameList = ($srac.Keys + 'canonicalname' | Sort-Object)
         foreach ($attributeName in $attributeNameList) {
-            if ($attributename -eq 'canonicalname') {
+            if ($attributeName -eq 'member;range=0-1499') {
+                $attributeName = 'member'
+                $values = ''
+            } elseif ($attributeName -eq 'member' -and $attributeNameList -contains ('member;range=0-1499')) {
+                continue
+            } elseif ($attributeName -eq 'member' -and 
+                        $attributeNameList -notcontains ('member;range=0-1499')) {
+                $values = ''
+            } elseif ($attributename -eq 'canonicalname') {
                 $values = ConvertTo-CanonicalName `
                     -DistinguishedName $srac['distinguishedname'].GetValues('string') | 
                         Select-Object -First 1
@@ -422,7 +435,14 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
             $attributeObject | Add-Member -MemberType NoteProperty `
                 -Name $attributeName -Value $values
         }
-        $attributeObject
+        if (($attributeObject | Get-Member -MemberType NoteProperty).Name -contains 'member') {
+            $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
+            $attributeObject.member = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
+                Convert-SearchResultAttributeCollectionToPSCustomObject `
+                    -SearchResultAttributeCollection $_.Attributes
+            }
+        }
+        $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
     }
 }
 
