@@ -22,6 +22,7 @@
 
 # TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
 
+using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
@@ -35,6 +36,8 @@ $userDomain = $config.userDomain
 $userName = $config.userName
 $authType = $config.authType
 $searchbase = $config.searchbase
+
+$pageSize = 100 # TODO Probably should read from config if available
 
 $Script:credential = $null
 $Script:ldapServer = $null
@@ -177,9 +180,11 @@ function Send-LDAPRequest
             } elseif ($_ -is [System.DirectoryServices.Protocols.DeleteResponse]) {
                 # NOTE Be silent for now
             } elseif ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
-                # NOTE It's likely returning an object from an ldap directory, 
-                # otherwise something we do not care about...
+                # NOTE It's likely returning an object from an ldap directory...
                 $_
+            } else {
+                #return $_
+                # ...otherwise something we do not care about...
             }
          }
     } catch {
@@ -188,9 +193,11 @@ function Send-LDAPRequest
             $Script:credential = $null
             $script:ldapServer = Connect-LDAPServer
             Send-LDAPRequest -Request $Request
+        } else {
+            throw $_
         }
     }
-    # NOTE ...which is here.
+    # NOTE ...such as this here.
     # RequestId    :
     # MatchedDN    :
     # Controls     : {}
@@ -213,8 +220,25 @@ function Invoke-LDAPQuery
     $searchRequest = New-Object `
         -TypeName System.DirectoryServices.Protocols.SearchRequest `
         -ArgumentList $searchbase, $Filter, $scope, $attributeList
+
+    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $pageSize
+    $searchRequest.Controls.Add($pageRequest)
     
-    Send-LDAPRequest -Request $searchRequest
+    $searchResponse = Send-LDAPRequest -Request $searchRequest
+    if ($searchResponse.Controls.Length -ne 1 -or
+        $searchResponse.Controls[0] -isnot [PageResultResponseControl]) {
+        throw "The server cannot page the result set"
+        return
+    }
+    while ($true) {
+        $pageResponse = [PageResultResponseControl]$searchResponse.Controls[0]
+        $pageRequest.Cookie = $pageResponse.Cookie
+        $searchResponse = Send-LDAPRequest -Request $searchRequest
+        $searchResponse
+        if ($pageResponse.Cookie.Length -eq 0) {
+            return
+        }
+    }
 }
 
 function Add-LDAPObject
