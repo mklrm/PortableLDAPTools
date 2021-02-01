@@ -2,12 +2,11 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
+# TODO Add a parameter to New-Menu that'll allow the list of selected objects to be skipped
+
 # TODO Add a function that returns a list of log files
 
 # TODO Regenerate the log file name when running a query, inform if it changes (day changes)
-
-# TODO Readable group membership (Not a list of distinguishednames)
-#      Maybe return the members as objects and make canonicalname the string representation
 
 # TODO Recursive group membership handleification
 
@@ -25,11 +24,15 @@
 # TODO Still got issues with large groups (this is from a search result already converted to PSCustomObject):
 # member                :
 # member;range=0-1499   : {CN=test user Y 3493,OU=users,OU=org,DC=satan,DC=local, ...}
+# NOTE I kind of handled this just by querying for all members of the group which can be 
+#      extremely slow as this is specifically a workaround for large groups
 
 # TODO Could probably combine most of Add- and Remove-LDAPGroupMember to a single function
 
 # TODO Tell the user what they picked ([A]...) so if whatever operation takes a bit of 
 #      time they know somethings probably going to happen
+
+# TODO Print stats like how many objects were found
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
@@ -517,11 +520,16 @@ function Select-LDAPObject
     while ($true) {
         $hideKeysStrokes = $true
         $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        $confirmMessage = 'You picked '
         switch ($key) {
             A {
+                $confirmMessage += '[A]pply, working...'
+                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
                 return 'Apply'
             }
             S {
+                $confirmMessage += '[S]elect objects, working...'
+                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
                 if ($PSVersionTable.OS -match 'Windows') {
                     $selected = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
@@ -530,6 +538,8 @@ function Select-LDAPObject
                 }
             }
             D {
+                $confirmMessage += '[D]eselect, working...'
+                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
                 if ($PSVersionTable.OS -match 'Windows') {
                     $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
@@ -545,6 +555,8 @@ function Select-LDAPObject
                 }
             }
             Escape {
+                $confirmMessage += 'cancel.'
+                Write-Host $confirmMessage -ForegroundColor Yellow # TODO Define color elsewhere...
                 return @()
             }
         }
@@ -555,11 +567,11 @@ function Get-LDAPObject
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute = '*'
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
     # TODO There's probably a way to only write out specific default attributes
-    # as cmdlets, or rather objetcs are tend to do. I seem to recall that requires 
+    # as cmdlets, or rather objects are tend to do. I seem to recall that requires 
     # defining a new class for the object which might not be possible on older 
     # versions of powershell.
 
@@ -576,14 +588,19 @@ function Get-LDAPObject
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
             $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes | `
-                    Select-Object -Property $ReturnAttribute
+                -SearchResultAttributeCollection $_.Attributes
         }
     }
     if (-not $ReturnAttribute) {
         $result | Sort-Object -Property canonicalname
     } else {
-        $result | Select-Object $ReturnAttribute
+        $selectSplat = @{}
+        if ($ReturnAttribute.Count -eq 1) {
+            $selectSplat.ExpandProperty = $ReturnAttribute[0]
+        } elseif ($ReturnAttribute.Count -gt 1) {
+            $selectSplat.Property = $ReturnAttribute
+        }
+        $result | Select-Object @selectSplat
     }
 }
 
