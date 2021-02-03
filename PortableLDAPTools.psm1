@@ -2,22 +2,9 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
-# TODO Add a parameter to New-Menu that'll allow the list of selected objects to be skipped
-
-# TODO Add a function that returns a list of log files
-
-# TODO Regenerate the log file name when running a query, inform if it changes (day changes)
-
 # TODO Recursive group membership handleification
 
-# TODO Could move to some sort of Search-LDAPObjectAndSomethingSomething-format with function names
-#      _SHOULD_ do so with the functions made for human consumption
-#      ...and Select- where that's applicable. There may be other options.
-
 # TODO Add a summary of what the function does at the top of each help text
-
-# TODO Add -NoConfirmation to the add and remove group member functions, 
-#      probably might as well add it to some others too.
 
 # TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
 
@@ -26,13 +13,6 @@
 # member;range=0-1499   : {CN=test user Y 3493,OU=users,OU=org,DC=satan,DC=local, ...}
 # NOTE I kind of handled this just by querying for all members of the group which can be 
 #      extremely slow as this is specifically a workaround for large groups
-
-# TODO Could probably combine most of Add- and Remove-LDAPGroupMember to a single function
-
-# TODO Tell the user what they picked ([A]...) so if whatever operation takes a bit of 
-#      time they know somethings probably going to happen
-
-# TODO Print stats like how many objects were found
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
@@ -114,6 +94,8 @@ function Write-Log
         [String]$Level = 'Informational',
         [Parameter(Mandatory=$false)][Switch]$NoEcho
     )
+    $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
+    $logFileFullName = "$pathMyDocuments\$logFileName"
     $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
     switch ($Level) {
         'Informational' {
@@ -137,19 +119,36 @@ function Write-Log
         -Encoding $logFileEncoding -Append -Force
 }
 
-function Get-LDAPLog {
-    Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | Sort-Object
-}
-
 try {
     $msg = "$PSCommandPath loading"
     Write-Log -Message $msg -ErrorAction Stop
+    Write-Log -Message "Logging to $logFileFullName"
 } catch {
     $err = $_.ToString()
     throw "Error writing to log file $($logFileFullName): $err"
 }
 
-Write-Log -Message "Logging to $logFileFullName"
+function Get-LDAPLogFileList
+{
+    Param(
+        [Parameter(
+            Mandatory=$false,
+            ParameterSetName='First'
+        )][Int]$First,
+        [Parameter(
+            Mandatory=$false,
+            ParameterSetName='Last'
+        )][Int]$Last
+    )
+    # TODO It's now mandatory to set either First or Last, allow passing neither
+    $logPathList = Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | `
+        Sort-Object
+    if ($First) {
+        $logPathList | Select-Object -First $First
+    } elseif ($Last) {
+        $logPathList | Select-Object -Last $Last
+    }
+}
 
 function Write-Help
 {
@@ -563,7 +562,7 @@ function Select-LDAPObject
     }
 }
 
-function Get-LDAPObject
+function Search-LDAP
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -574,6 +573,7 @@ function Get-LDAPObject
     # as cmdlets, or rather objects are tend to do. I seem to recall that requires 
     # defining a new class for the object which might not be possible on older 
     # versions of powershell.
+    # TODO 'LDAPGet givenname' doesn't find anything
 
     if (-not $SearchTerm) {
         $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
@@ -600,11 +600,13 @@ function Get-LDAPObject
         } elseif ($ReturnAttribute.Count -gt 1) {
             $selectSplat.Property = $ReturnAttribute
         }
+        # TODO If the and attribute getting expand here doesn't exist a property 
+        #      not found error is thrown, Write-Log something instead
         $result | Select-Object @selectSplat
     }
 }
 
-function Get-LDAPObjectByAttributeValue
+function Search-LDAPByAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
@@ -646,9 +648,6 @@ function Select-LDAPTargetObject
         [Parameter(Mandatory=$true)][String]$Title
     )
     $apply = $false
-    if ($NoConfirmation.IsPresent) {
-        $apply = $true
-    }
     while ($apply -eq $false) {
         Write-Host $Title -ForegroundColor Yellow
         foreach ($ldapObject in $LDAPObjectList) {
@@ -673,7 +672,7 @@ function Select-LDAPTargetObject
     return $LDAPObjectList
 }
 
-function Set-LDAPObjectAttributeValue
+function Search-LDAPAndSetAttributeValue
 {
     param(
         [parameter(Mandatory=$false)][string[]]$searchterm,
@@ -694,7 +693,7 @@ function Set-LDAPObjectAttributeValue
         return
     }
 
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
         return
@@ -719,7 +718,7 @@ function Set-LDAPObjectAttributeValue
     }
 }
 
-function Add-LDAPObjectAttributeValue
+function Search-LDAPAndAddAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -740,7 +739,7 @@ function Add-LDAPObjectAttributeValue
         return
     }
 
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
         return
@@ -766,7 +765,7 @@ function Add-LDAPObjectAttributeValue
     }
 }
 
-function Remove-LDAPObjectAttributeValue
+function Search-LDAPAndRemoveAttributeValue
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -787,7 +786,7 @@ function Remove-LDAPObjectAttributeValue
         return
     }
 
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
         return
@@ -812,13 +811,17 @@ function Remove-LDAPObjectAttributeValue
     }
 }
 
-function Clear-LDAPObjectAttribute
+function Search-LDAPAndClearAttribute
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
         [Parameter(Mandatory=$false)][String]$Attribute,
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
+
+    # TODO Throws an error if an attribute is not set or otherwise doesn't exists, 
+    #      Write-Log something instead
+    # TODO Doesn't work with a multi value attribute like othermobile, deal with it
 
     if (-not $SearchTerm -or -not $Attribute) {
         $usage = "LDAPClr SearchTerm(s) Attribute"
@@ -829,7 +832,7 @@ function Clear-LDAPObjectAttribute
         return
     }
 
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
     }
@@ -853,6 +856,32 @@ function Clear-LDAPObjectAttribute
     }
 }
 
+function Get-MembershipMap
+{
+    param(
+        [parameter(mandatory=$false)]$LDAPGroupList,
+        [parameter(mandatory=$false)]$LDAPMemberList
+    )
+    $membershipMap = @()
+    foreach ($ldapGroup in $LDAPGroupList) {
+        if ($LDAPMemberList -eq '*') {
+            $filter = "(&(memberof=$($ldapGroup.DistinguishedName)))"
+            $LDAPMemberList = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
+                Convert-SearchResultAttributeCollectionToPSCustomObject `
+                    -SearchResultAttributeCollection $_.Attributes
+            }
+        }
+        foreach ($ldapMember in $LDAPMemberList) {
+            $membershipMap += [PSCustomObject]@{
+                Group = $ldapGroup
+                Member = $ldapMember
+                Name = "$($ldapGroup.canonicalname) - $($ldapMember.canonicalname)"
+            }
+        }
+    }
+    $membershipMap
+}
+
 function Select-LDAPGroupMemberModificationTarget
 {
     param(
@@ -871,16 +900,7 @@ function Select-LDAPGroupMemberModificationTarget
         $direction = 'from'
     }
 
-    $membershipMap = @()
-    foreach ($ldapGroup in $LDAPGroupList) {
-        foreach ($ldapMember in $LDAPMemberList) {
-            $membershipMap += [PSCustomObject]@{
-                Group = $ldapGroup
-                Member = $ldapMember
-                Name = "$($ldapGroup.canonicalname) - $($ldapMember.canonicalname)"
-            }
-        }
-    }
+    $membershipMap = Get-MembershipMap -LDAPGroupList $LDAPGroupList -LDAPMemberList $LDAPMemberList
     $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
     $apply = $false
     while ($apply -eq $false) {
@@ -905,21 +925,16 @@ function Select-LDAPGroupMemberModificationTarget
     return $membershipMap
 }
 
-function Add-LDAPGroupMember
+function Search-LDAPAndModifyGroupMember
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
-        [Parameter(Mandatory=$false)][String[]]$SearchTermMember
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Add', 'Remove')]
+        [String]$Operation
     )
-
-    if (-not $SearchTermGroup -or -not $SearchTermMember) {
-        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)"
-        [OrderedDictionary]$parameters = @{}
-        $parameters['SearchTermGroup'] = "Terms to find groups"
-        $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
-        Write-Help -Usage $usage -Parameter $parameters
-        return
-    }
 
     $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
     if ($PSVersionTable.OS -notmatch 'Windows') {
@@ -934,12 +949,24 @@ function Add-LDAPGroupMember
         }
     }
 
-    $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
+    if ($Operation -ne 'Remove' -and -not $SearchTermMember -eq '*') {
+        $ldapMemberList = Search-LDAP -SearchTerm $SearchTermMember
+    } else {
+        $ldapMemberList = '*'
+    }
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
-        $addToMap = Select-LDAPGroupMemberModificationTarget `
-            -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
-            -Operation 'Add' -Instructions $instructions
+        if (-not $NoConfirmation.IsPresent) {
+            $addToMap = Select-LDAPGroupMemberModificationTarget `
+                -LDAPGroupList $ldapGroupList `
+                -LDAPMemberList $ldapMemberList `
+                -Operation $Operation `
+                -Instructions $instructions
+        } else {
+            $addToMap = Get-MembershipMap `
+                -LDAPGroupList $LDAPGroupList `
+                -LDAPMemberList $LDAPMemberList
+        }
         # NOTE Since group member lists are cached there's always a 
         #      possibility something else modifies it while this 
         #      function is doing the same
@@ -958,106 +985,118 @@ function Add-LDAPGroupMember
                 #      if returning to something like this is quicker
                 # TODO Doing individual queries for members might well be faster than getting 
                 #      all group members
-                #if ($addtoEntry.Group.member -contains $addtoEntry.Member.distinguishedname) {
-                if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
-                    $msg = "'$groupCanName' already contains '$groupMemName'"
-                    Write-Log -Message $msg
-                } else {
-                    Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
-                        -Values $memberDN -ErrorAction Stop
-                    $msg = "'$groupCanName' member '$groupMemName' added"
-                    Write-Log -Message $msg
+                if ($Operation -eq 'Add') {
+                    if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
+                        $msg = "'$groupCanName' already contains '$groupMemName'"
+                        Write-Log -Message $msg
+                    } else {
+                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
+                            -Values $memberDN -ErrorAction Stop
+                        $msg = "'$groupCanName' member '$groupMemName' added"
+                        Write-Log -Message $msg
+                    }
+                }
+                if ($Operation -eq 'Remove') {
+                    if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
+                        $msg = "'$groupCanName' does not contain '$groupMemName'"
+                        Write-Log -Message $msg
+                    } else {
+                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
+                            -Values $memberDN -ErrorAction Stop
+                        $msg = "'$groupCanName' member '$groupMemName' removed"
+                        Write-Log -Message $msg
+                    }
                 }
             } catch {
                 $err = $_.ToString()
-                $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
+                if ($Operation -eq 'Add') {
+                    $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
+                } elseif ($Operation -eq 'Remove') {
+                    $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
+                }
                 Write-Log -Message $msg -Level Error
             }                
         }
     } else {
-        if ($ldapGroupList.Count -gt 0) {
-            Write-Host "Found no members to add."
-        } else {
-            Write-Host "Found no groups to add members to."
+        if ($Operation -eq 'Add') {
+            if ($ldapGroupList.Count -gt 0) {
+                Write-Host "Found no members to add."
+            } else {
+                Write-Host "Found no groups to add members to."
+            }
+        } elseif ($Operation -eq 'Remove') {
+            if ($ldapGroupList.Count -gt 0) {
+                Write-Host "Found no members to remove."
+            } else {
+                Write-Host "Found no groups to remove members from."
+            }
         }
     }
 }
 
-function Remove-LDAPGroupMember
+function Search-LDAPAndAddGroupMember
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
-        [Parameter(Mandatory=$false)][String[]]$SearchTermMember
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
-    if (-not $SearchTermGroup -and -not $SearchTermMember) {
-        $usage = "LDAPRemMember SearchTermGroup(s) SearchTermMember(s)"
+    if (-not $SearchTermGroup -or -not $SearchTermMember) {
+        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
+            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
-        $parameters['SearchTermGroup'] = "Term to find groups"
-        $parameters['SearchTermMember'] = "Term to find objects to remove from groups"
+        $parameters['SearchTermGroup'] = "Terms to find groups"
+        $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
         Write-Help -Usage $usage -Parameter $parameters
         return
     }
-
-    $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-    if ($PSVersionTable.OS -notmatch 'Windows') {
-        $instructions = '[A]pply, Esc to cancel'
-    }
-
-    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
-    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
-        }
-    }
-
-    $ldapMemberList = Get-LDAPObject -SearchTerm $SearchTermMember
-
-    if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
-        $addToMap = Select-LDAPGroupMemberModificationTarget `
-            -LDAPGroupList $ldapGroupList -LDAPMemberList $ldapMemberList `
-            -Operation 'Remove' -Instructions $instructions
-        # NOTE Since group member lists are cached there's always a 
-        #      possibility something else modifies it while this 
-        #      function is doing the same
-        $memberCache = @{}
-        foreach ($addtoEntry in $addToMap) {
-            $groupDN = $addtoEntry.Group.DistinguishedName
-            $memberDN = $addtoEntry.Member.DistinguishedName
-            $groupCanName = $addtoEntry.Group.canonicalname
-            $groupMemName = $addToEntry.Member.canonicalname
-            if (-not $memberCache[$groupDN]) {
-                $memberFilter = "(&(memberof=$groupDN))"
-                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter).Entries.distinguishedname)
-            }
-            try {
-                # TODO Work out the 'only 1500 members being returned with a group' issue, see 
-                #      if returning to something like this is quicker
-                # TODO Doing individual queries for members might well be faster than getting 
-                #      all group members
-                #if ($addtoEntry.Group.member -notcontains $addtoEntry.Member.distinguishedname) {
-                if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
-                    $msg = "'$groupCanName' does not contain '$groupMemName'"
-                    Write-Log -Message $msg
-                } else {
-                    Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
-                        -Values $memberDN -ErrorAction Stop
-                    $msg = "'$groupCanName' member '$groupMemName' removed"
-                    Write-Log -Message $msg
-                }
-            } catch {
-                $err = $_.ToString()
-                $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
-                Write-Log -Message $msg -Level Error
-            }                
-        }
+    if (-not $NoConfirmation.IsPresent) {
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation 'Add'
     } else {
-        if ($ldapGroupList.Count -gt 0) {
-            Write-Host "Found no members to remove."
-        } else {
-            Write-Host "Found no groups to remove members from."
-        }
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation Add `
+            -NoConfirmation
+    }
+}
+
+function Search-LDAPAndRemoveGroupMember
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
+    )
+
+    # TODO Add SearchTermMember '*' to instructions
+
+    if (-not $SearchTermGroup -or -not $SearchTermMember) {
+        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
+            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTermGroup'] = "Terms to find groups"
+        $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
+        Write-Help -Usage $usage -Parameter $parameters
+        return
+    }
+    if (-not $NoConfirmation.IsPresent) {
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation Remove
+    } else {
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation Remove `
+            -NoConfirmation
     }
 }
 
@@ -1086,7 +1125,7 @@ function Get-RandomString
     $charArray -join ''
 }
 
-function Reset-LDAPObjectPassword
+function Search-LDAPAndResetPassword
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
@@ -1129,7 +1168,7 @@ function Reset-LDAPObjectPassword
         [byte[]]$NewPassword = ConvertTo-LDAPPassword $NewPassword
     }
 
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set password on the following objects:"
     if ($ldapObjectList.Count -lt 1) {
@@ -1163,7 +1202,7 @@ function Reset-LDAPObjectPassword
     }
 }
 
-function Search-LDAPObjectAndRemove
+function Search-LDAPAndRemove
 {
     param(
         [Parameter(Mandatory=$false)][string[]]$SearchTerm
@@ -1175,7 +1214,7 @@ function Search-LDAPObjectAndRemove
         Write-Help -Usage $usage -Parameter $parameters
         return
     }
-    $ldapObjectList = Get-LDAPObject -SearchTerm $SearchTerm
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
     if ($ldapObjectList.Count -lt 1) {
         Write-Host "Could not find objects to modify."
         return
@@ -1197,15 +1236,41 @@ function Search-LDAPObjectAndRemove
     }
 }
 
-Set-Alias -Name LDAPGet -Value Get-LDAPObject
-Set-Alias -Name LDAPGetBy -Value Get-LDAPObjectByAttributeValue
-Set-Alias -Name LDAPSet -Value Set-LDAPObjectAttributeValue
-Set-Alias -Name LDAPAdd -Value Add-LDAPObjectAttributeValue
-Set-Alias -Name LDAPRem -Value Remove-LDAPObjectAttributeValue
-Set-Alias -Name LDAPClr -Value Clear-LDAPObjectAttribute
-Set-Alias -Name LDAPAddMember -Value Add-LDAPGroupMember
-Set-Alias -Name LDAPRemMember -Value Remove-LDAPGroupMember
+Set-Alias -Name LDAPGet -Value Search-LDAP
+Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
+Set-Alias -Name LDAPSet -Value Search-LDAPAndSetAttributeValue
+Set-Alias -Name LDAPAdd -Value Search-LDAPAndAddAttributeValue
+Set-Alias -Name LDAPRem -Value Search-LDAPAndRemoveAttributeValue
+Set-Alias -Name LDAPClr -Value Search-LDAPAndClearAttribute
+Set-Alias -Name LDAPAddMember -Value Search-LDAPAndAddGroupMember
+Set-Alias -Name LDAPRemMember -Value Search-LDAPAndRemoveGroupMember
 Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
-Set-Alias -Name LDAPRemObj -Value Search-LDAPObjectAndRemove
-Set-Alias -Name LDAPSetPass -Value Reset-LDAPObjectPassword
+Set-Alias -Name LDAPRemObj -Value Search-LDAPAndRemove
+Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
+Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
+
+Export-ModuleMember -Function Search-LDAP, 
+        Search-LDAPByAttributeValue, 
+        Search-LDAPAndSetAttributeValue, 
+        Search-LDAPAndAddAttributeValue, 
+        Search-LDAPAndRemoveAttributeValue,
+        Search-LDAPAndClearAttribute,
+        Search-LDAPAndAddGroupMember,
+        Search-LDAPAndRemoveGroupMember,
+        Add-LDAPObject,
+        Search-LDAPAndRemove,
+        Search-LDAPAndResetPassword,
+        Get-LDAPLogFileList `
+    -Alias LDAPGet,
+        LDAPGetBy,
+        LDAPSet,
+        LDAPAdd,
+        LDAPRem,
+        LDAPClr,
+        LDAPAddMember,
+        LDAPRemMember,
+        LDAPAddObj,
+        LDAPRemObj,
+        LDAPSetPass,
+        LDAPGetLogList
 
