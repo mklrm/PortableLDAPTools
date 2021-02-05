@@ -28,11 +28,22 @@ $userDomain = $config.userDomain
 $userName = $config.userName
 $authType = $config.authType
 $searchbase = $config.searchbase
+$pageSize = $config.pageSize
 
-$pageSize = 5000 # TODO Probably should read from config if available
+if (-not $pageSize) {
+    $pageSize = 5000
+}
 
 $Script:credential = $null
 $Script:ldapServer = $null
+
+$confirmMessageColor = $Host.PrivateData.FormatAccentColor # NOTE Just pretty much used this for now because 
+                                                           #      the default is green.
+$cancelMessageColor = $Host.PrivateData.WarningForegroundColor
+
+if (-not $confirmMessageColor) {
+    $confirmMessageColor = 'Green'
+}
 
 $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
@@ -76,11 +87,9 @@ function Connect-LDAPServer
         $Script:credential = Get-LDAPCredential
     }
     $ldapServer = New-Object `
-        -TypeName System.DirectoryServices.Protocols.LdapConnection `
-        -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
+        -TypeName LdapConnection -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
 
     $ldapServer.SessionOptions.SecureSocketLayer = $true
-    #$ldapServer.SessionOptions.Sealing = $true
     $ldapServer.SessionOptions.ProtocolVersion = 3
     return $ldapServer
 }
@@ -103,11 +112,8 @@ function Write-Log
             $backgroundColor = $HOST.UI.RawUI.BackgroundColor
         }
         'Error' {
-            # TODO Maybe there's a way to determine the color 
-            # that's being used for error messages, for now 
-            # doing this should be a safe bet
-            $foregroundColor = $HOST.UI.RawUI.BackgroundColor
-            $backgroundColor = $HOST.UI.RawUI.ForegroundColor
+            $foregroundColor = $Host.PrivateData.ErrorForegroundColor
+            $backgroundColor = $HOST.PrivateData.ErrorBackgroundColor
         }
     }
     if (-not $NoEcho.IsPresent) {
@@ -131,22 +137,19 @@ try {
 function Get-LDAPLogFileList
 {
     Param(
-        [Parameter(
-            Mandatory=$false,
-            ParameterSetName='First'
-        )][Int]$First,
-        [Parameter(
-            Mandatory=$false,
-            ParameterSetName='Last'
-        )][Int]$Last
+        [Parameter(Mandatory=$false)][Int]$First,
+        [Parameter(Mandatory=$false)][Int]$Last
     )
-    # TODO It's now mandatory to set either First or Last, allow passing neither
     $logPathList = Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | `
         Sort-Object
     if ($First) {
         $logPathList | Select-Object -First $First
-    } elseif ($Last) {
+    }
+    if ($Last) {
         $logPathList | Select-Object -Last $Last
+    }
+    if (-not $First -and -not $Last) {
+        $logPathList
     }
 }
 
@@ -175,10 +178,10 @@ function Write-Help
     Write-Host
 }
 
-function Send-LDAPRequest
+function Send-LDAP
 {
     Param(
-        [Parameter(Mandatory=$true)]$Request # TODO Rename and add type...
+        [Parameter(Mandatory=$true)][DirectoryRequest]$Request
     )
 
     if ($null -eq $Script:ldapServer) {
@@ -186,11 +189,11 @@ function Send-LDAPRequest
     }
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
-            if ($_ -is [System.DirectoryServices.Protocols.AddResponse]) {
+            if ($_ -is [AddResponse]) {
                 # NOTE Be silent for now
-            } elseif ($_ -is [System.DirectoryServices.Protocols.DeleteResponse]) {
+            } elseif ($_ -is [DeleteResponse]) {
                 # NOTE Be silent for now
-            } elseif ($_ -isnot [System.DirectoryServices.Protocols.ModifyResponse]) {
+            } elseif ($_ -isnot [ModifyResponse]) {
                 # NOTE It's likely returning an object from an ldap directory...
                 $_
             } else {
@@ -203,7 +206,7 @@ function Send-LDAPRequest
             Write-Host "The supplied credential is invalid."
             $Script:credential = $null
             $script:ldapServer = Connect-LDAPServer
-            Send-LDAPRequest -Request $Request
+            Send-LDAP -Request $Request
         } else {
             throw $_
         }
@@ -222,23 +225,23 @@ function Send-LDAPRequest
 function Invoke-LDAPQuery
 {
     Param(
-        [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))'
+        [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))',
+        [Parameter(Mandatory=$false)][String]$AttributeList = '*'
     )
 
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
-    $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
-    $attributeList = @('*') # TODO Add a parameter for this and don't default to everything...
+    $scope = [SearchScope]::Subtree
 
     $searchRequest = New-Object `
         -TypeName System.DirectoryServices.Protocols.SearchRequest `
-        -ArgumentList $searchbase, $Filter, $scope, $attributeList
+        -ArgumentList $searchbase, $Filter, $scope, $AttributeList
 
     $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $pageSize
     $searchRequest.Controls.Add($pageRequest)
     
-    $searchResponse = Send-LDAPRequest -Request $searchRequest
+    $searchResponse = Send-LDAP -Request $searchRequest
     if ($searchResponse.Controls.Length -ne 1 -or
         $searchResponse.Controls[0] -isnot [PageResultResponseControl]) {
         throw "The server cannot page the result set"
@@ -247,7 +250,7 @@ function Invoke-LDAPQuery
     while ($true) {
         $pageResponse = [PageResultResponseControl]$searchResponse.Controls[0]
         $pageRequest.Cookie = $pageResponse.Cookie
-        $searchResponse = Send-LDAPRequest -Request $searchRequest
+        $searchResponse = Send-LDAP -Request $searchRequest
         $searchResponse
         if ($pageResponse.Cookie.Length -eq 0) {
             return
@@ -297,7 +300,7 @@ function Add-LDAPObject
         $addRequest.Attributes.Add($newAttribute) | Out-Null
     }
 
-    Send-LDAPRequest -Request $addRequest
+    Send-LDAP -Request $addRequest
 }
 
 function Set-LDAPObject
@@ -324,7 +327,7 @@ function Set-LDAPObject
             -ArgumentList $DistinguishedName, $modification
     }
 
-    Send-LDAPRequest -Request $modifyRequest
+    Send-LDAP -Request $modifyRequest
 }
 
 function Remove-LDAPObject
@@ -336,7 +339,7 @@ function Remove-LDAPObject
         -TypeName System.DirectoryServices.Protocols.DeleteRequest `
         -ArgumentList $DistinguishedName
 
-    Send-LDAPRequest -Request $deleteRequest
+    Send-LDAP -Request $deleteRequest
 }
 
 function ConvertTo-CanonicalName
@@ -466,6 +469,7 @@ function Get-LDAPFuzzyQueryFilter
             $filter += "(&(objectclass=$ObjectClass)"
         }
         $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)"
+        $filter += "(givenname=$sTerm)(sn=$sTerm)"
         if ($sTerm -match '@') {
             $filter += "(userprincipalname=$sTerm)(mail=$sTerm)"
         }
@@ -523,12 +527,12 @@ function Select-LDAPObject
         switch ($key) {
             A {
                 $confirmMessage += '[A]pply, working...'
-                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
+                Write-Host $confirmMessage -ForegroundColor $confirmMessageColor
                 return 'Apply'
             }
             S {
                 $confirmMessage += '[S]elect objects, working...'
-                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
+                Write-Host $confirmMessage -ForegroundColor $confirmMessageColor
                 if ($PSVersionTable.OS -match 'Windows') {
                     $selected = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
@@ -538,7 +542,7 @@ function Select-LDAPObject
             }
             D {
                 $confirmMessage += '[D]eselect, working...'
-                Write-Host $confirmMessage -ForegroundColor Green # TODO Define color elsewhere...
+                Write-Host $confirmMessage -ForegroundColor $confirmMessageColor
                 if ($PSVersionTable.OS -match 'Windows') {
                     $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
@@ -555,7 +559,7 @@ function Select-LDAPObject
             }
             Escape {
                 $confirmMessage += 'cancel.'
-                Write-Host $confirmMessage -ForegroundColor Yellow # TODO Define color elsewhere...
+                Write-Host $confirmMessage -ForegroundColor $cancelMessageColor
                 return @()
             }
         }
@@ -573,7 +577,6 @@ function Search-LDAP
     # as cmdlets, or rather objects are tend to do. I seem to recall that requires 
     # defining a new class for the object which might not be possible on older 
     # versions of powershell.
-    # TODO 'LDAPGet givenname' doesn't find anything
 
     if (-not $SearchTerm) {
         $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
@@ -600,9 +603,12 @@ function Search-LDAP
         } elseif ($ReturnAttribute.Count -gt 1) {
             $selectSplat.Property = $ReturnAttribute
         }
-        # TODO If the and attribute getting expand here doesn't exist a property 
-        #      not found error is thrown, Write-Log something instead
-        $result | Select-Object @selectSplat
+        foreach ($entry in $result) {
+            if ($ReturnAttribute.Count -eq 1 -and (-not $entry.$ReturnAttribute)) {
+                continue
+            }
+            $entry | Select-Object @selectSplat
+        }
     }
 }
 
@@ -755,7 +761,7 @@ function Search-LDAPAndAddAttributeValue
             Write-Log -Message $msg
             Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
-            $msg = "'$objName' '$Attribute' value '$valName' added" # TODO Maybe report the whole new value set
+            $msg = "'$objName' '$Attribute' value '$valName' added"
             Write-Log -Message $msg
         } catch {
             $err = $_.ToString()
@@ -819,10 +825,6 @@ function Search-LDAPAndClearAttribute
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
-    # TODO Throws an error if an attribute is not set or otherwise doesn't exists, 
-    #      Write-Log something instead
-    # TODO Doesn't work with a multi value attribute like othermobile, deal with it
-
     if (-not $SearchTerm -or -not $Attribute) {
         $usage = "LDAPClr SearchTerm(s) Attribute"
         [OrderedDictionary]$parameters = @{}
@@ -833,8 +835,9 @@ function Search-LDAPAndClearAttribute
     }
 
     $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
-    if ($ldapObjectList.Count -lt 1) {
+    if (-not $ldapObjectList) {
         Write-Host "Could not find objects to modify."
+        return
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
@@ -842,12 +845,19 @@ function Search-LDAPAndClearAttribute
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute -join ', '
         try {
-            $msg = "'$objName' '$Attribute' is '$oldValue'"
-            Write-Log -Message $msg
-            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
-                -AttributeName $Attribute -Values $ldapObject.$Attribute -ErrorAction Stop
-            $msg = "'$objName' '$Attribute' cleared"
-            Write-Log -Message $msg
+            if ($oldValue) {
+                $msg = "'$objname' '$attribute' is '$oldvalue'"
+                write-log -message $msg
+                foreach ($value in $ldapObject.$Attribute) {
+                    Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
+                        -AttributeName $Attribute -Values $value -ErrorAction Stop
+                }
+                $msg = "'$objName' '$Attribute' cleared"
+                Write-Log -Message $msg
+            } else {
+                $msg = "'$objname' '$attribute' is already not set"
+                write-log -message $msg
+            }
         } catch {
             $err = $_.ToString()
             $msg = "Error clearing '$objName' '$Attribute': $err"
@@ -901,6 +911,10 @@ function Select-LDAPGroupMemberModificationTarget
     }
 
     $membershipMap = Get-MembershipMap -LDAPGroupList $LDAPGroupList -LDAPMemberList $LDAPMemberList
+    if ($Operation -eq 'Remove' -and -not $membershipMap) {
+        Write-Host "There's no members in the passed groups to remove."
+        return
+    }
     $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
     $apply = $false
     while ($apply -eq $false) {
@@ -949,10 +963,10 @@ function Search-LDAPAndModifyGroupMember
         }
     }
 
-    if ($Operation -ne 'Remove' -and -not $SearchTermMember -eq '*') {
-        $ldapMemberList = Search-LDAP -SearchTerm $SearchTermMember
-    } else {
+    if ($Operation -eq 'Remove' -and $SearchTermMember -eq '*') {
         $ldapMemberList = '*'
+    } else {
+        $ldapMemberList = Search-LDAP -SearchTerm $SearchTermMember
     }
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
@@ -1074,6 +1088,9 @@ function Search-LDAPAndRemoveGroupMember
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
+    # TODO When removing members from multiple groups using * as SearchTermMember such as <group1, group2> 
+    #      the script will first enumerate the members of group1, remove then and then try to remove 
+    #      the members of group1 from group2 too. Fix this.
     # TODO Add SearchTermMember '*' to instructions
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
