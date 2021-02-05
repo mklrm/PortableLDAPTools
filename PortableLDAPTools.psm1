@@ -234,8 +234,7 @@ function Invoke-LDAPQuery
 
     $scope = [SearchScope]::Subtree
 
-    $searchRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.SearchRequest `
+    $searchRequest = New-Object -TypeName SearchRequest `
         -ArgumentList $searchbase, $Filter, $scope, $AttributeList
 
     $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $pageSize
@@ -291,11 +290,9 @@ function Add-LDAPObject
     $DistinguishedName = "CN=$Name,$OrganizationalUnit"
 
     $addRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.AddRequest `
-        -ArgumentList $DistinguishedName, $ObjectClass
+        -TypeName AddRequest -ArgumentList $DistinguishedName, $ObjectClass
     foreach ($attribute in $AdditionalAttributes.Keys) {
-        $newAttribute = New-Object `
-            -TypeName System.DirectoryServices.Protocols.DirectoryAttribute `
+        $newAttribute = New-Object -TypeName DirectoryAttribute `
             -ArgumentList $attribute, $AdditionalAttributes[$attribute]
         $addRequest.Attributes.Add($newAttribute) | Out-Null
     }
@@ -313,18 +310,14 @@ function Set-LDAPObject
         [Parameter(Mandatory=$true)]$Values
     )
     if ($Operation -eq 'Replace') {
-        $modifyRequest = New-Object `
-            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
+        $modifyRequest = New-Object -TypeName ModifyRequest `
             -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
     } else {
-        $modification = New-Object `
-            -TypeName System.DirectoryServices.Protocols.DirectoryAttributeModification
+        $modification = New-Object -TypeName DirectoryAttributeModification
         $modification.Name = $AttributeName
         $modification.Add($Values) | Out-Null
         $modification.Operation = $Operation
-        $modifyRequest = New-Object `
-            -TypeName System.DirectoryServices.Protocols.ModifyRequest `
-            -ArgumentList $DistinguishedName, $modification
+        $modifyRequest = New-Object -TypeName ModifyRequest -ArgumentList $DistinguishedName, $modification
     }
 
     Send-LDAP -Request $modifyRequest
@@ -336,8 +329,7 @@ function Remove-LDAPObject
         [Parameter(Mandatory=$true)][String]$DistinguishedName
     )
     $deleteRequest = New-Object `
-        -TypeName System.DirectoryServices.Protocols.DeleteRequest `
-        -ArgumentList $DistinguishedName
+        -TypeName DeleteRequest -ArgumentList $DistinguishedName
 
     Send-LDAP -Request $deleteRequest
 }
@@ -392,8 +384,7 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
 {
     Param(
         [Parameter(Mandatory=$false)]
-        [System.DirectoryServices.Protocols.SearchResultAttributeCollection[]]
-        $SearchResultAttributeCollection
+        [SearchResultAttributeCollection[]]$SearchResultAttributeCollection
     )
     foreach ($srac in $SearchResultAttributeCollection) {
         $attributeObject = [PSCustomObject]@{}
