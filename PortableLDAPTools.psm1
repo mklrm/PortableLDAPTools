@@ -14,6 +14,10 @@
 # NOTE I kind of handled this just by querying for all members of the group which can be 
 #      extremely slow as this is specifically a workaround for large groups
 
+# TODO combine the user and computer classes if possible as much as possible
+# TODO Maybe it's also time to start moving some things to a separate files
+#      or files and maybe the classes would be a good place to start
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -75,7 +79,30 @@ usnchanged
 usncreated
 whenchanged
 whencreated
-additionalattributes' -split "`n" | Where-Object { $_ }
+additionalattributes
+' -split "`n" | Where-Object { $_ }
+
+$ldapUserObjectAttributes = '
+accountexpires
+admincount
+badpasswordtime
+badpwdcount
+codepage
+countrycode
+description
+iscriticalsystemobject
+lastlogoff
+lastlogon
+lastlogontimestamp
+logoncount
+memberof
+objectsid
+primarygroupid
+pwdlastset
+samaccountname
+samaccounttype
+useraccountcontrol
+' -split "`n" | Where-Object { $_ }
 
 $ldapGroupObjectAttributes = '
 grouptype
@@ -132,6 +159,7 @@ Class LDAPObject
 
 Class LDAPUser : LDAPObject
 {
+    # Attributes required by constructor
     [Int64] $accountexpires
     [Int] $admincount
     [Int64] $badpasswordtime
@@ -151,6 +179,9 @@ Class LDAPUser : LDAPObject
     [String] $samaccountname
     [Int] $samaccounttype
     [Int] $useraccountcontrol
+
+    # Optional attributes picked from $additionalattributes
+    [String] $description
 
     LDAPUser([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
         [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
@@ -189,6 +220,7 @@ Class LDAPUser : LDAPObject
         }
     }
 }
+
 Class LDAPGroup : LDAPObject
 {
     [Int] $grouptype
@@ -216,6 +248,68 @@ Class LDAPGroup : LDAPObject
     }
 }
 
+<#
+Class LDAPComputer : LDAPObject
+{
+    # Attributes required by constructor
+    [Int64] $accountexpires
+    [Int64] $badpasswordtime
+    [Int] $badpwdcount
+    [Int] $codepage
+    [Int] $countrycode
+    [Boolean] $iscriticalsystemobject
+    [Int64] $lastlogoff # TODO [DateTime]
+    [Int64] $lastlogon # TODO [DateTime]
+    [Int] $localpolicyflags
+    [Int] $logoncount
+    [String[]] $memberof
+    [SecurityIdentifier] $objectsid
+    [Int] $primarygroupid
+    [DateTime] $pwdlastset
+    [String] $samaccountname
+    [Int] $samaccounttype
+    [Int] $useraccountcontrol
+    
+    # Optional attributes picked from $additionalattributes
+    [String] $description
+
+    LDAPComputer([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
+        [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
+        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated,
+        [PSCustomObject[]] $additionalattributes, [Int64] $accountexpires, 
+        [Int64] $badpasswordtime, [Int] $badpwdcount, [Int] $codepage, [Int] $countrycode, 
+        [String] $description, [Boolean] $iscriticalsystemobject, [Int64] $lastlogoff,
+        [Int64] $lastlogon, [Int] $localpolicyflags, [Int] $logoncount, [String[]] $memberof,
+        [SecurityIdentifier] $objectsid, [Int] $primarygroupid, [DateTime] $pwdlastset, 
+        [String] $samaccountname, [Int] $samaccounttype, [Int] $useraccountcontrol) : base($canonicalname, 
+        $cn, $distinguishedname, $dscorepropagationdata, $instancetype, $name, $objectcategory, 
+        $objectclass, $objectguid, $usnchanged, $usncreated, $whenchanged, $whencreated, 
+        $additionalattributes)
+    {
+        $this.accountexpires = $accountexpires
+        #$this.admincount = $admincount
+        $this.badpasswordtime = $badpasswordtime
+        $this.badpwdcount = $badpwdcount
+        $this.codepage = $codepage
+        $this.countrycode = $countrycode
+        $this.iscriticalsystemobject = $iscriticalsystemobject
+        $this.lastlogoff = $lastlogoff
+        $this.lastlogon = $lastlogon
+        #$this.lastlogontimestamp = $lastlogontimestamp
+        $this.logoncount = $logoncount
+        $this.memberof = $memberof
+        $this.objectsid = $objectsid
+        $this.primarygroupid = $primarygroupid
+        $this.pwdlastset = $pwdlastset
+        $this.samaccountname = $samaccountname
+        $this.samaccounttype = $samaccounttype
+        $this.useraccountcontrol = $useraccountcontrol
+        if ($additionalattributes.description) {
+            $this.description = $additionalattributes.description
+        }
+}
+#> 
 function Get-LDAPCredential
 {
     Write-Host "Enter password for user $userDomain\$($userName):"
@@ -602,7 +696,7 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         $objectClassGroup = 'group,top'
         if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
             $additionalAttributes = $attributeObject | Select-Object -Property * `
-                -ExcludeProperty ($ldapBaseObjectAttributes + $ldapGroupObjectAttributes)
+                -ExcludeProperty ($ldapBaseObjectAttributes + $ldapUserObjectAttributes)
             New-Object -TypeName LDAPUser -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
                 $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
                 $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, 
