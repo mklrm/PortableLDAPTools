@@ -61,6 +61,29 @@ if ($config.logFileFullName) {
 # NOTE Excellent article about Powershell classes:
 # https://xainey.github.io/2016/powershell-classes-and-concepts/#inheritance
 
+$ldapBaseObjectAttributes = '
+canonicalname
+cn
+distinguishedname
+dscorepropagationdata
+instancetype
+name
+objectcategory
+objectclass
+objectguid
+usnchanged
+usncreated
+whenchanged
+whencreated
+additionalattributes' -split "`n" | Where-Object { $_ }
+
+$ldapGroupObjectAttributes = '
+grouptype
+objectsid
+samaccountname
+samaccounttype
+' -split "`n" | Where-Object { $_ }
+
 Class LDAPObject
 {
     # TODO Start out at least with this basic set of attributes, should work with AD anyway
@@ -77,11 +100,13 @@ Class LDAPObject
     [Int] $usncreated
     [DateTime] $whenchanged
     [DateTime] $whencreated
+    [PSCustomObject[]] $additionalattributes
 
     LDAPObject([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
         [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
         [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
-        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated)
+        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated, 
+        [PSCustomObject[]] $additionalattributes)
     {
         $this.canonicalname = $canonicalname
         $this.cn = $cn
@@ -96,6 +121,7 @@ Class LDAPObject
         $this.usncreated = $usncreated
         $this.whenchanged = $whenchanged
         $this.whencreated = $whencreated
+        $this.additionalattributes = $additionalattributes
     }
 
     [String] ToString()
@@ -106,19 +132,19 @@ Class LDAPObject
 
 Class LDAPGroup : LDAPObject
 {
-    [Int] $grouptype
-    [SecurityIdentifier] $objectsid
-    [String] $samaccountname
-    [Int] $samaccounttype
+    [int] $grouptype
+    [securityidentifier] $objectsid
+    [string] $samaccountname
+    [int] $samaccounttype
 
     LDAPGroup([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
         [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
         [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
         [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated,
-        [Int] $grouptype, [SecurityIdentifier] $objectsid, 
-        [String] $samaccountname, [Int] $samaccounttype) : base($canonicalname, $cn, $distinguishedname, 
-        $dscorepropagationdata, $instancetype, $name, $objectcategory, $objectclass, $objectguid, 
-        $usnchanged, $usncreated, $whenchanged, $whencreated)
+        [Int] $grouptype, [SecurityIdentifier] $objectsid, [String] $samaccountname, 
+        [Int] $samaccounttype, [PSCustomObject[]] $additionalattributes) : base($canonicalname, $cn, 
+        $distinguishedname, $dscorepropagationdata, $instancetype, $name, $objectcategory, $objectclass, 
+        $objectguid, $usnchanged, $usncreated, $whenchanged, $whencreated, $additionalattributes)
     {
         $this.grouptype = $grouptype
         $this.objectsid = $objectsid
@@ -510,10 +536,12 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         }
         if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq 'group,top') {
             $a = $attributeObject
+            $additionalAttributes = $attributeObject | Select-Object -Property * `
+                -ExcludeProperty ($ldapBaseObjectAttributes + $ldapGroupObjectAttributes)
             New-Object -TypeName LDAPGroup -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
                 $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
                 $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, $a.grouptype,
-                $a.objectsid, $a.samaccountName, $a.samaccounttype
+                $a.objectsid, $a.samaccountName, $a.samaccounttype, $additionalAttributes
         } else {
             $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
         }
