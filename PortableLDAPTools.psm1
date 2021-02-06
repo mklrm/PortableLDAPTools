@@ -130,12 +130,72 @@ Class LDAPObject
     }
 }
 
+Class LDAPUser : LDAPObject
+{
+    [Int64] $accountexpires
+    [Int] $admincount
+    [Int64] $badpasswordtime
+    [Int] $badpwdcount
+    [Int] $codepage
+    [Int] $countrycode
+    [String] $description
+    [Boolean] $iscriticalsystemobject
+    [Int64] $lastlogoff # TODO [DateTime]
+    [Int64] $lastlogon # TODO [DateTime]
+    [Int64] $lastlogontimestamp # TODO [DateTime]
+    [Int] $logoncount
+    [String[]] $memberof
+    [SecurityIdentifier] $objectsid
+    [Int] $primarygroupid
+    [DateTime] $pwdlastset
+    [String] $samaccountname
+    [Int] $samaccounttype
+    [Int] $useraccountcontrol
+
+    LDAPUser([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
+        [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
+        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated,
+        [PSCustomObject[]] $additionalattributes, [Int64] $accountexpires, [Int] $admincount, 
+        [Int64] $badpasswordtime, [Int] $badpwdcount, [Int] $codepage, [Int] $countrycode, 
+        [String] $description, [Boolean] $iscriticalsystemobject, [Int64] $lastlogoff,
+        [Int64] $lastlogon, [Int64] $lastlogontimestamp, [Int] $logoncount, [String[]] $memberof,
+        [SecurityIdentifier] $objectsid, [Int] $primarygroupid, [DateTime] $pwdlastset, 
+        [String] $samaccountname, [Int] $samaccounttype, [Int] $useraccountcontrol) : base($canonicalname, 
+        $cn, $distinguishedname, $dscorepropagationdata, $instancetype, $name, $objectcategory, 
+        $objectclass, $objectguid, $usnchanged, $usncreated, $whenchanged, $whencreated, 
+        $additionalattributes)
+    {
+        $this.accountexpires = $accountexpires
+        $this.admincount = $admincount
+        $this.badpasswordtime = $badpasswordtime
+        $this.badpwdcount = $badpwdcount
+        $this.codepage = $codepage
+        $this.countrycode = $countrycode
+        $this.iscriticalsystemobject = $iscriticalsystemobject
+        $this.lastlogoff = $lastlogoff
+        $this.lastlogon = $lastlogon
+        $this.lastlogontimestamp = $lastlogontimestamp
+        $this.logoncount = $logoncount
+        $this.memberof = $memberof
+        $this.objectsid = $objectsid
+        $this.primarygroupid = $primarygroupid
+        $this.pwdlastset = $pwdlastset
+        $this.samaccountname = $samaccountname
+        $this.samaccounttype = $samaccounttype
+        $this.useraccountcontrol = $useraccountcontrol
+        if ($additionalattributes.description) {
+            $this.description = $additionalattributes.description
+        }
+    }
+}
 Class LDAPGroup : LDAPObject
 {
-    [int] $grouptype
-    [securityidentifier] $objectsid
-    [string] $samaccountname
-    [int] $samaccounttype
+    [Int] $grouptype
+    [SecurityIdentifier] $objectsid
+    [String] $samaccountname
+    [Int] $samaccounttype
+    [String] $description
 
     LDAPGroup([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
         [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
@@ -150,6 +210,9 @@ Class LDAPGroup : LDAPObject
         $this.objectsid = $objectsid
         $this.samaccountname = $samaccountname
         $this.samaccounttype = $samaccounttype
+        if ($additionalattributes.description) {
+            $this.description = $additionalattributes.description
+        }
     }
 }
 
@@ -534,14 +597,26 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
                     -SearchResultAttributeCollection $_.Attributes
             }
         }
-        if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq 'group,top') {
-            $a = $attributeObject
+        $a = $attributeObject
+        $objectClassUser = 'organizationalPerson,person,top,user'
+        $objectClassGroup = 'group,top'
+        if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
+            $additionalAttributes = $attributeObject | Select-Object -Property * `
+                -ExcludeProperty ($ldapBaseObjectAttributes + $ldapGroupObjectAttributes)
+            New-Object -TypeName LDAPUser -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
+                $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
+                $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, 
+                $additionalAttributes, $a.accountexpires, $a.admincount, $a.badpasswordtime, $a.badpwdcount,
+                $a.codepage, $a.countrycode, $a.description, $a.iscriticalsystemobject, $a.lastlogoff,
+                $a.lastlogon, $a.lastlogontimestamp, $a.logoncount, $a.memberof, $a.objectsid,
+                $a.primarygroupid, $a.pwdlastset, $a.samaccountname, $a.samaccounttype, $a.useraccountcontrol
+        } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
             $additionalAttributes = $attributeObject | Select-Object -Property * `
                 -ExcludeProperty ($ldapBaseObjectAttributes + $ldapGroupObjectAttributes)
             New-Object -TypeName LDAPGroup -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
                 $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
-                $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, $a.grouptype,
-                $a.objectsid, $a.samaccountName, $a.samaccounttype, $additionalAttributes
+                $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, 
+                $additionalAttributes, $a.grouptype, $a.objectsid, $a.samaccountname, $a.samaccounttype
         } else {
             $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
         }
@@ -565,7 +640,7 @@ function Get-LDAPFuzzyQueryFilter
         if ($ObjectClass) {
             $filter += "(&(objectclass=$ObjectClass)"
         }
-        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountName=$sTerm)(distinguishedname=$sTerm)"
+        $filter += "(|(cn=$sTerm)(name=$sTerm)(samaccountname=$sTerm)(distinguishedname=$sTerm)"
         $filter += "(givenname=$sTerm)(sn=$sTerm)"
         if ($sTerm -match '@') {
             $filter += "(userprincipalname=$sTerm)(mail=$sTerm)"
