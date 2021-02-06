@@ -16,6 +16,7 @@
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
+using namespace System.Security.Principal
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 
@@ -77,29 +78,52 @@ Class LDAPObject
     [DateTime] $whenchanged
     [DateTime] $whencreated
 
-    LDAPObjectInfo([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
+    LDAPObject([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
         [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
         [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
         [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated)
     {
-        $this.$canonicalname = $canonicalname
-        $this.$cn = $cn
-        $this.$distinguishedname = $distinguishedname
-        $this.$dscorepropagationdata = $dscorepropagationdata
-        $this.$instancetype = $instancetype
-        $this.$name = $name
-        $this.$objectcategory = $objectcategory
-        $this.$objectclass = $objectclass
-        $this.$objectguid = $objectguid
-        $this.$usnchanged = $usnchanged
-        $this.$usncreated = $usncreated
-        $this.$whenchanged = $whenchanged
-        $this.$whencreated = $whencreated
+        $this.canonicalname = $canonicalname
+        $this.cn = $cn
+        $this.distinguishedname = $distinguishedname
+        $this.dscorepropagationdata = $dscorepropagationdata
+        $this.instancetype = $instancetype
+        $this.name = $name
+        $this.objectcategory = $objectcategory
+        $this.objectclass = $objectclass
+        $this.objectguid = $objectguid
+        $this.usnchanged = $usnchanged
+        $this.usncreated = $usncreated
+        $this.whenchanged = $whenchanged
+        $this.whencreated = $whencreated
     }
 
     [String] ToString()
     {
         return $this.canonicalname
+    }
+}
+
+Class LDAPGroup : LDAPObject
+{
+    [Int] $grouptype
+    [SecurityIdentifier] $objectsid
+    [String] $samaccountname
+    [Int] $samaccounttype
+
+    LDAPGroup([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
+        [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
+        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated,
+        [Int] $grouptype, [SecurityIdentifier] $objectsid, 
+        [String] $samaccountname, [Int] $samaccounttype) : base($canonicalname, $cn, $distinguishedname, 
+        $dscorepropagationdata, $instancetype, $name, $objectcategory, $objectclass, $objectguid, 
+        $usnchanged, $usncreated, $whenchanged, $whencreated)
+    {
+        $this.grouptype = $grouptype
+        $this.objectsid = $objectsid
+        $this.samaccountname = $samaccountname
+        $this.samaccounttype = $samaccounttype
     }
 }
 
@@ -484,7 +508,15 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
                     -SearchResultAttributeCollection $_.Attributes
             }
         }
-        $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
+        if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq 'group,top') {
+            $a = $attributeObject
+            New-Object -TypeName LDAPGroup -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
+                $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
+                $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, $a.grouptype,
+                $a.objectsid, $a.samaccountName, $a.samaccounttype
+        } else {
+            $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
+        }
     }
 }
 
