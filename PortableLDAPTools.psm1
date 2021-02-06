@@ -57,6 +57,52 @@ if ($config.logFileFullName) {
     $logFileFullName = $config.logFileFullName
 }
 
+# NOTE Excellent article about Powershell classes:
+# https://xainey.github.io/2016/powershell-classes-and-concepts/#inheritance
+
+Class LDAPObject
+{
+    # TODO Start out at least with this basic set of attributes, should work with AD anyway
+    [String] $canonicalname
+    [String] $cn
+    [String] $distinguishedname
+    [DateTime[]] $dscorepropagationdata
+    [Int] $instancetype
+    [String] $name
+    [String] $objectcategory
+    [String[]] $objectclass
+    [Guid] $objectguid
+    [Int] $usnchanged
+    [Int] $usncreated
+    [DateTime] $whenchanged
+    [DateTime] $whencreated
+
+    LDAPObjectInfo([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
+        [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
+        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated)
+    {
+        $this.$canonicalname = $canonicalname
+        $this.$cn = $cn
+        $this.$distinguishedname = $distinguishedname
+        $this.$dscorepropagationdata = $dscorepropagationdata
+        $this.$instancetype = $instancetype
+        $this.$name = $name
+        $this.$objectcategory = $objectcategory
+        $this.$objectclass = $objectclass
+        $this.$objectguid = $objectguid
+        $this.$usnchanged = $usnchanged
+        $this.$usncreated = $usncreated
+        $this.$whenchanged = $whenchanged
+        $this.$whencreated = $whencreated
+    }
+
+    [String] ToString()
+    {
+        return $this.canonicalname
+    }
+}
+
 function Get-LDAPCredential
 {
     Write-Host "Enter password for user $userDomain\$($userName):"
