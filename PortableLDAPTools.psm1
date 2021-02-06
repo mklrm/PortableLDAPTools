@@ -865,14 +865,15 @@ function Get-MembershipMap
     )
     $membershipMap = @()
     foreach ($ldapGroup in $LDAPGroupList) {
+        $LDAPMemberModifyList = $LDAPMemberList
         if ($LDAPMemberList -eq '*') {
             $filter = "(&(memberof=$($ldapGroup.DistinguishedName)))"
-            $LDAPMemberList = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
+            $LDAPMemberModifyList = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
                 Convert-SearchResultAttributeCollectionToPSCustomObject `
                     -SearchResultAttributeCollection $_.Attributes
             }
         }
-        foreach ($ldapMember in $LDAPMemberList) {
+        foreach ($ldapMember in $LDAPMemberModifyList) {
             $membershipMap += [PSCustomObject]@{
                 Group = $ldapGroup
                 Member = $ldapMember
@@ -981,7 +982,7 @@ function Search-LDAPAndModifyGroupMember
             $memberDN = $addtoEntry.Member.DistinguishedName
             $groupCanName = $addtoEntry.Group.canonicalname
             $groupMemName = $addToEntry.Member.canonicalname
-            if (-not $memberCache[$groupDN]) {
+            if (-not ($memberCache.Keys -contains $groupDN)) {
                 $memberFilter = "(&(memberof=$groupDN))"
                 $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter).Entries.distinguishedname)
             }
@@ -1079,17 +1080,13 @@ function Search-LDAPAndRemoveGroupMember
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
-    # TODO When removing members from multiple groups using * as SearchTermMember such as <group1, group2> 
-    #      the script will first enumerate the members of group1, remove then and then try to remove 
-    #      the members of group1 from group2 too. Fix this.
-    # TODO Add SearchTermMember '*' to instructions
-
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
         $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
             "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
+        $sTMInfo = "Terms to find objects to add to groups, use * to remove all members"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTermGroup'] = "Terms to find groups"
-        $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
+        $parameters['SearchTermMember'] = $sTMInfo
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
         Write-Help -Usage $usage -Parameter $parameters
         return
