@@ -89,7 +89,6 @@ badpasswordtime
 badpwdcount
 codepage
 countrycode
-description
 iscriticalsystemobject
 lastlogoff
 lastlogon
@@ -157,70 +156,6 @@ Class LDAPObject
     }
 }
 
-Class LDAPUser : LDAPObject
-{
-    # Attributes required by constructor
-    [Int64] $accountexpires
-    [Int] $admincount
-    [Int64] $badpasswordtime
-    [Int] $badpwdcount
-    [Int] $codepage
-    [Int] $countrycode
-    [String] $description
-    [Boolean] $iscriticalsystemobject
-    [Int64] $lastlogoff # TODO [DateTime]
-    [Int64] $lastlogon # TODO [DateTime]
-    [Int64] $lastlogontimestamp # TODO [DateTime]
-    [Int] $logoncount
-    [String[]] $memberof
-    [SecurityIdentifier] $objectsid
-    [Int] $primarygroupid
-    [DateTime] $pwdlastset
-    [String] $samaccountname
-    [Int] $samaccounttype
-    [Int] $useraccountcontrol
-
-    # Optional attributes picked from $additionalattributes
-    [String] $description
-
-    LDAPUser([String] $canonicalname, [String] $cn, [String] $distinguishedname, 
-        [DateTime[]] $dscorepropagationdata, [Int] $instancetype, [String] $name, 
-        [String] $objectcategory, [String[]] $objectclass, [Guid] $objectguid, 
-        [Int] $usnchanged, [Int] $usncreated, [DateTime] $whenchanged, [DateTime] $whencreated,
-        [PSCustomObject[]] $additionalattributes, [Int64] $accountexpires, [Int] $admincount, 
-        [Int64] $badpasswordtime, [Int] $badpwdcount, [Int] $codepage, [Int] $countrycode, 
-        [String] $description, [Boolean] $iscriticalsystemobject, [Int64] $lastlogoff,
-        [Int64] $lastlogon, [Int64] $lastlogontimestamp, [Int] $logoncount, [String[]] $memberof,
-        [SecurityIdentifier] $objectsid, [Int] $primarygroupid, [DateTime] $pwdlastset, 
-        [String] $samaccountname, [Int] $samaccounttype, [Int] $useraccountcontrol) : base($canonicalname, 
-        $cn, $distinguishedname, $dscorepropagationdata, $instancetype, $name, $objectcategory, 
-        $objectclass, $objectguid, $usnchanged, $usncreated, $whenchanged, $whencreated, 
-        $additionalattributes)
-    {
-        $this.accountexpires = $accountexpires
-        $this.admincount = $admincount
-        $this.badpasswordtime = $badpasswordtime
-        $this.badpwdcount = $badpwdcount
-        $this.codepage = $codepage
-        $this.countrycode = $countrycode
-        $this.iscriticalsystemobject = $iscriticalsystemobject
-        $this.lastlogoff = $lastlogoff
-        $this.lastlogon = $lastlogon
-        $this.lastlogontimestamp = $lastlogontimestamp
-        $this.logoncount = $logoncount
-        $this.memberof = $memberof
-        $this.objectsid = $objectsid
-        $this.primarygroupid = $primarygroupid
-        $this.pwdlastset = $pwdlastset
-        $this.samaccountname = $samaccountname
-        $this.samaccounttype = $samaccounttype
-        $this.useraccountcontrol = $useraccountcontrol
-        if ($additionalattributes.description) {
-            $this.description = $additionalattributes.description
-        }
-    }
-}
-
 Class LDAPGroup : LDAPObject
 {
     [Int] $grouptype
@@ -242,6 +177,179 @@ Class LDAPGroup : LDAPObject
         $this.objectsid = $objectsid
         $this.samaccountname = $samaccountname
         $this.samaccounttype = $samaccounttype
+        if ($additionalattributes.description) {
+            $this.description = $additionalattributes.description
+        }
+    }
+}
+
+Class LDAPAuthenticatedObject : LDAPObject
+{
+    # Attributes required by constructor
+    [Int64] $accountexpires
+    [Int64] $badpasswordtime
+    [Int] $badpwdcount
+    [Int] $codepage
+    [Int] $countrycode
+    [Boolean] $iscriticalsystemobject
+    [Int64] $lastlogoff # TODO [DateTime]
+    [Int64] $lastlogon # TODO [DateTime]
+    [Int64] $lastlogontimestamp # TODO [DateTime]
+    [Int] $logoncount
+    [String[]] $memberof
+    [SecurityIdentifier] $objectsid
+    [Int] $primarygroupid
+    [DateTime] $pwdlastset
+    [String] $samaccountname
+    [Int] $samaccounttype
+    [Int] $useraccountcontrol
+
+    LDAPAuthenticatedObject(
+        [String] $canonicalname, 
+        [String] $cn, 
+        [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, 
+        [Int] $instancetype, 
+        [String] $name, 
+        [String] $objectcategory, 
+        [String[]] $objectclass, 
+        [Guid] $objectguid, 
+        [Int] $usnchanged, 
+        [Int] $usncreated, 
+        [DateTime] $whenchanged, 
+        [DateTime] $whencreated,
+        [PSCustomObject[]] $additionalattributes,
+        [Int64] $accountexpires, 
+        [Int64] $badpasswordtime, 
+        [Int] $badpwdcount, 
+        [Int] $codepage, 
+        [Int] $countrycode, 
+        [Boolean] $iscriticalsystemobject, 
+        [Int64] $lastlogoff, 
+        [Int64] $lastlogon, 
+        [Int64] $lastlogontimestamp, 
+        [Int] $logoncount, 
+        [String[]] $memberof,
+        [SecurityIdentifier] $objectsid, 
+        [Int] $primarygroupid, 
+        [DateTime] $pwdlastset, 
+        [String] $samaccountname, 
+        [Int] $samaccounttype, 
+        [Int] $useraccountcontrol
+    ) : base(
+        $canonicalname, 
+        $cn, 
+        $distinguishedname, 
+        $dscorepropagationdata, 
+        $instancetype, 
+        $name, 
+        $objectcategory, 
+        $objectclass, 
+        $objectguid, 
+        $usnchanged, 
+        $usncreated, 
+        $whenchanged, 
+        $whencreated, 
+        $additionalattributes
+    )
+    {
+        $this.accountexpires = $accountexpires
+        $this.badpasswordtime = $badpasswordtime
+        $this.badpwdcount = $badpwdcount
+        $this.codepage = $codepage
+        $this.countrycode = $countrycode
+        $this.iscriticalsystemobject = $iscriticalsystemobject
+        $this.lastlogoff = $lastlogoff
+        $this.lastlogon = $lastlogon
+        $this.lastlogontimestamp = $lastlogontimestamp
+        $this.logoncount = $logoncount
+        $this.memberof = $memberof
+        $this.objectsid = $objectsid
+        $this.primarygroupid = $primarygroupid
+        $this.pwdlastset = $pwdlastset
+        $this.samaccountname = $samaccountname
+        $this.samaccounttype = $samaccounttype
+        $this.useraccountcontrol = $useraccountcontrol
+    }
+}
+
+
+Class LDAPUser : LDAPAuthenticatedObject
+{
+    # Attributes required by constructor
+    [Int] $admincount
+
+    # Optional attributes picked from additionalattributes
+    [String] $description
+
+    LDAPUser(
+        [String] $canonicalname, 
+        [String] $cn, 
+        [String] $distinguishedname, 
+        [DateTime[]] $dscorepropagationdata, 
+        [Int] $instancetype, 
+        [String] $name, 
+        [String] $objectcategory, 
+        [String[]] $objectclass, 
+        [Guid] $objectguid, 
+        [Int] $usnchanged, 
+        [Int] $usncreated, 
+        [DateTime] $whenchanged, 
+        [DateTime] $whencreated,
+        [PSCustomObject[]] $additionalattributes, 
+        [Int64] $accountexpires, 
+        [Int] $admincount, 
+        [Int64] $badpasswordtime, 
+        [Int] $badpwdcount, 
+        [Int] $codepage, 
+        [Int] $countrycode, 
+        [Boolean] $iscriticalsystemobject, 
+        [Int64] $lastlogoff,
+        [Int64] $lastlogon, 
+        [Int64] $lastlogontimestamp, 
+        [Int] $logoncount, 
+        [String[]] $memberof,
+        [SecurityIdentifier] $objectsid, 
+        [Int] $primarygroupid, 
+        [DateTime] $pwdlastset, 
+        [String] $samaccountname, 
+        [Int] $samaccounttype, 
+        [Int] $useraccountcontrol
+    ) : base(
+        $canonicalname, 
+        $cn, 
+        $distinguishedname, 
+        $dscorepropagationdata, 
+        $instancetype, 
+        $name, 
+        $objectcategory, 
+        $objectclass, 
+        $objectguid, 
+        $usnchanged, 
+        $usncreated, 
+        $whenchanged, 
+        $whencreated, 
+        $additionalattributes, 
+        $accountexpires, 
+        $badpasswordtime, 
+        $badpwdcount, 
+        $codepage, 
+        $countrycode,
+        $iscriticalsystemobject, 
+        $lastlogoff, 
+        $lastlogon, 
+        $lastlogontimestamp, 
+        $logoncount, 
+        $memberof, 
+        $objectsid, 
+        $primarygroupid, 
+        $pwdLastSet, 
+        $samaccountname, 
+        $samaccounttype, 
+        $useraccountcontrol
+    )
+    {
+        $this.admincount = $admincount
         if ($additionalattributes.description) {
             $this.description = $additionalattributes.description
         }
@@ -695,15 +803,42 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         $objectClassUser = 'organizationalPerson,person,top,user'
         $objectClassGroup = 'group,top'
         if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
-            $additionalAttributes = $attributeObject | Select-Object -Property * `
+            $additionalAttributes = @()
+            $additionalAttributes += $attributeObject | Select-Object -Property * `
                 -ExcludeProperty ($ldapBaseObjectAttributes + $ldapUserObjectAttributes)
-            New-Object -TypeName LDAPUser -ArgumentList $a.canonicalname, $a.cn, $a.distinguishedname,
-                $a.dscorepropagationdata, $a.instancetype, $a.name, $a.objectcategory, $a.objectclass,
-                $a.objectguid, $a.usnchanged, $a.usncreated, $a.whenchanged, $a.whencreated, 
-                $additionalAttributes, $a.accountexpires, $a.admincount, $a.badpasswordtime, $a.badpwdcount,
-                $a.codepage, $a.countrycode, $a.description, $a.iscriticalsystemobject, $a.lastlogoff,
-                $a.lastlogon, $a.lastlogontimestamp, $a.logoncount, $a.memberof, $a.objectsid,
-                $a.primarygroupid, $a.pwdlastset, $a.samaccountname, $a.samaccounttype, $a.useraccountcontrol
+            New-Object -TypeName LDAPUser -ArgumentList `
+                $a.canonicalname, 
+                $a.cn, 
+                $a.distinguishedname,
+                $a.dscorepropagationdata, 
+                $a.instancetype, 
+                $a.name, 
+                $a.objectcategory, 
+                $a.objectclass,
+                $a.objectguid, 
+                $a.usnchanged, 
+                $a.usncreated, 
+                $a.whenchanged, 
+                $a.whencreated, 
+                $additionalAttributes, 
+                $a.accountexpires, 
+                $a.admincount, 
+                $a.badpasswordtime, 
+                $a.badpwdcount,
+                $a.codepage, 
+                $a.countrycode,
+                $a.iscriticalsystemobject, 
+                $a.lastlogoff,
+                $a.lastlogon, 
+                $a.lastlogontimestamp, 
+                $a.logoncount, 
+                $a.memberof, 
+                $a.objectsid,
+                $a.primarygroupid, 
+                $a.pwdlastset, 
+                $a.samaccountname, 
+                $a.samaccounttype, 
+                $a.useraccountcontrol
         } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
             $additionalAttributes = $attributeObject | Select-Object -Property * `
                 -ExcludeProperty ($ldapBaseObjectAttributes + $ldapGroupObjectAttributes)
