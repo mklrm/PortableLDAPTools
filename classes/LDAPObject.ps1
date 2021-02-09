@@ -57,6 +57,7 @@ Class LDAPGroup : LDAPObject
     [Int] $samaccounttype
     [String] $description
     [String[]] $member
+    [String[]] $memberof
     [Int] $admincount
     [Boolean] $iscriticalsystemobject
     [Int] $systemflags

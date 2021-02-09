@@ -3,6 +3,8 @@
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
 # TODO Recursive group membership handleification
+# TODO Just add a function for starters that gets distinguishednames with some sort of 
+#      nested path and get on from there
 
 # TODO Add a summary of what the function does at the top of each help text
 
@@ -590,11 +592,6 @@ function Search-LDAP
         [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
-    # TODO There's probably a way to only write out specific default attributes
-    # as cmdlets, or rather objects are tend to do. I seem to recall that requires 
-    # defining a new class for the object which might not be possible on older 
-    # versions of powershell.
-
     if (-not $SearchTerm) {
         $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
         [OrderedDictionary]$parameters = @{}
@@ -1010,13 +1007,10 @@ function Search-LDAPAndModifyGroupMember
             $groupMemName = $addToEntry.Member.canonicalname
             if (-not ($memberCache.Keys -contains $groupDN)) {
                 $memberFilter = "(&(memberof=$groupDN))"
-                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter).Entries.distinguishedname)
+                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
+                    -AttributeList 'distinguishedname').Entries.distinguishedname)
             }
             try {
-                # TODO Work out the 'only 1500 members being returned with a group' issue, see 
-                #      if returning to something like this is quicker
-                # TODO Doing individual queries for members might well be faster than getting 
-                #      all group members
                 if ($Operation -eq 'Add') {
                     if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
                         $msg = "'$groupCanName' already contains '$groupMemName'"
