@@ -8,19 +8,23 @@
 
 # TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
 
-# TODO Still got issues with large groups (this is from a search result already converted to PSCustomObject):
-# member                :
-# member;range=0-1499   : {CN=test user Y 3493,OU=users,OU=org,DC=satan,DC=local, ...}
-# NOTE I kind of handled this just by querying for all members of the group which can be 
-#      extremely slow as this is specifically a workaround for large groups
+# TODO Writing out every single result (or preview of what's going to be happening either really) 
+#      isn't very readable if you're adding say hundreds or thousands of members to a group 
+#      or whatever else. Could:
+#      1. Only display some arbitrary number of entries in the preview and let the user know 
+#         that there's more on the list and the list can be accessed via a New-Menu shortcut
+#      2. Only echo unsuccessful results and give stats of how many actions were successful 
+#         and how many failed. Tell user to run 'LDAPSomeCommand' to show all results or 
+#         something. 
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
+$pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 
-$configFile = "$PSScriptRoot\$scriptFileName.xml"
+$configFile = "$pathMyDocuments\$scriptFileName.xml"
 $config = Import-Clixml -Path $configFile
 
 $ldapServerName = $config.ldapServerName
@@ -50,7 +54,6 @@ $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
 $logFileNameFilter = "$scriptFileName-*.log"
 
-$pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 $logFileFullName = "$pathMyDocuments\$logFileName"
 $logFileNameFullNameFilter = "$pathMyDocuments\$logFileNameFilter"
 
@@ -227,8 +230,15 @@ function Invoke-LDAPQuery
 {
     Param(
         [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))',
-        [Parameter(Mandatory=$false)][String]$AttributeList = '*'
+        [Parameter(Mandatory=$false)][String[]]$AttributeList
     )
+
+    if (-not $AttributeList) {
+        $AttributeList = '*'
+    } elseif ($AttributeList -contains 'canonicalname' -and  $AttributeList -notcontains 'distinguishedname') {
+        # Canonicalname is constructed from distinguishedname so going to be needing that
+        $AttributeList += 'distinguishedname'
+    }
 
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
@@ -389,7 +399,11 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
     )
     foreach ($srac in $SearchResultAttributeCollection) {
         $attributeObject = [PSCustomObject]@{}
-        $attributeNameList = ($srac.Keys + 'canonicalname' | Sort-Object)
+        $attributeNameList = $srac.Keys
+        if ($srac.Keys -contains 'distinguishedname' -and $attributeNameList -notcontains 'canonicalname') {
+            $attributeNameList += 'canonicalname'
+        } 
+        $attributeNameList = $attributeNameList | Sort-Object
         foreach ($attributeName in $attributeNameList) {
             if ($attributeName -eq 'member;range=0-1499') {
                 $attributeName = 'member'
@@ -434,9 +448,9 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         }
         if (($attributeObject | Get-Member -MemberType NoteProperty).Name -contains 'member') {
             $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
-            $attributeObject.member = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
-                Convert-SearchResultAttributeCollectionToPSCustomObject `
-                    -SearchResultAttributeCollection $_.Attributes
+            $attributeObject.member = (Invoke-LDAPQuery -Filter $filter `
+                    -AttributeList 'distinguishedname').Entries | Foreach-Object {
+                $_.Attributes['distinguishedname'].GetValues('string')
             }
         }
         $objectClassUser = 'organizationalPerson,person,top,user'
@@ -592,7 +606,7 @@ function Search-LDAP
 
     $result = @()
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+        (Invoke-LDAPQuery -Filter $filter -AttributeList $ReturnAttribute).Entries | ForEach-Object {
             $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
                 -SearchResultAttributeCollection $_.Attributes
         }
