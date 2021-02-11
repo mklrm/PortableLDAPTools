@@ -566,10 +566,13 @@ function Select-LDAPObject
                     $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
                         'Enter confirms.'
-
+                    if ($deselectList) {
                     $selectList = Compare-Object -ReferenceObject $ObjectList.Name `
                         -DifferenceObject $deselectList.Name -IncludeEqual | 
                         Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+                    } else {
+                        return $ObjectList
+                    }
                     $selected = foreach ($select in $selectList) {
                         $ObjectList | Where-Object { $_.Name -eq $select }
                     }
