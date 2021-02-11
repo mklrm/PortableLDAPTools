@@ -37,6 +37,10 @@ $authType = $config.authType
 $searchbase = $config.searchbase
 $pageSize = $config.pageSize
 
+# TODO Add to config file:
+$Global:searchLDAPReturnAttributes = 'sAMAccountName,UserPrincipalName,CanonicalName,DistinguishedName'
+$Global:searchLDAPReturnAttributes = $Global:searchLDAPReturnAttributes -split ','
+
 if (-not $pageSize) {
     $pageSize = 5000
 }
@@ -592,7 +596,10 @@ function Search-LDAP
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
+        [ArgumentCompleter({
+            return $Global:searchLDAPReturnAttributes | ForEach-Object { $_ }
+        })]
+        [String[]]$ReturnAttribute
     )
 
     if (-not $SearchTerm) {
