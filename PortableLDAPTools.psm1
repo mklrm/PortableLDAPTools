@@ -858,6 +858,9 @@ function Search-LDAPAndClearAttribute
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute -join ', '
+        if (-not $oldValue) {
+            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+        }
         try {
             if ($oldValue) {
                 $msg = "'$objname' '$attribute' is '$oldvalue'"
