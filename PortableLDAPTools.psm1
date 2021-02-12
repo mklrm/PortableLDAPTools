@@ -6,8 +6,6 @@
 # TODO Just add a function for starters that gets distinguishednames with some sort of 
 #      nested path and get on from there
 
-# TODO Add a summary of what the function does at the top of each help text
-
 # TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
 
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
@@ -19,15 +17,11 @@
 #         and how many failed. Tell user to run 'LDAPSomeCommand' to show all results or 
 #         something. 
 
-# TODO change .additionalAttribute to just attributes as that appears to be more of a standard way of doing 
-#      something aproximating the same thing
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
 
 $psVersionMajor = $PSVersionTable.PSVersion.Major
-$psVersionMinor = $PSVersionTable.PSVersion.Minor
 
 if ($psVersionMajor -le 5) {
     [System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols")
@@ -178,13 +172,17 @@ function Get-LDAPLogFileList
 function Write-Help
 {
     Param(
+        [Parameter(Mandatory=$true)][String]$Description,
         [Parameter(Mandatory=$true)][String[]]$Usage,
         [Parameter(Mandatory=$true)]$Parameter
     )
+    $descriptionColor = 'Yellow'
     $colorUsgTitle = 'Green'
     $colorUsgMessage = $Host.UI.RawUI.ForegroundColor
     $colorMsgTitle = 'Yellow'
     $colorMsgMessage = $Host.UI.RawUI.ForegroundColor
+    Write-Host
+    Write-Host $Description -ForegroundColor $descriptionColor
     Write-Host
     foreach ($msg in $Usage) {
         Write-Host "Usage: " -ForegroundColor $colorUsgTitle -NoNewline
@@ -615,11 +613,12 @@ function Search-LDAP
     )
 
     if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and returns either all or requested return attributes. Search is fuzzy, you pass keywords that can include '*' as wildcards and the script attempts to find objects that have those values in attributes that generally identify an object such as Name, sAMAccountName, UserPrincipalName and so forth. So keep in mind that you are not making exact searches which is why these commands first let you know what is about to be done and you then have to choose to apply the changes."
         $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = 'Term to find objects by'
         $parameters['ReturnAttribute'] = "Which attributes to return per object '*' which is the default, means any value other than null."
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -657,12 +656,13 @@ function Search-LDAPByAttributeValue
     )
 
     if (-not $SearchAttribute) {
+        $description = "Looks for objects that have matching values in attributes."
         $usage = "LDAPGetBy SearchAttribute(s) AttributeValue(s) ReturnAttribute(s)"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchAttribute'] = "Attributes in which to look for value"
         $parameters['AttributeValue'] = "Which values to look for in attributes. '*' which is the default, means any value other than null."
         $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' is again the default."
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -717,13 +717,14 @@ function Select-LDAPTargetObject
 function Search-LDAPAndSetAttributeValue
 {
     param(
-        [parameter(Mandatory=$false)][string[]]$searchterm,
+        [parameter(Mandatory=$false)][string[]]$Searchterm,
         [Parameter(Mandatory=$false)][String]$Attribute,
         [Parameter(Mandatory=$false)][String]$Value,
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
+        $description = "Finds objects by passed search terms and then attempts to set the value of an Attribute to Value."
         $usage = "LDAPSet SearchTerm(s) Attribute Value", 
             "LDAPSet SearchTerm(s) Attribute Value -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
@@ -731,7 +732,7 @@ function Search-LDAPAndSetAttributeValue
         $parameters['Attribute'] = "Which attribute to modify"
         $parameters['Value'] = "Value to set to the attribute"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -746,7 +747,7 @@ function Search-LDAPAndSetAttributeValue
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute -join ', '
         if (-not $oldValue) {
-            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+            $oldValue = $ldapObject.attributes.$Attribute -join ', '
         }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
@@ -773,6 +774,7 @@ function Search-LDAPAndAddAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
+        $description = "Looks for objects by search terms and sets the Attribute to Value."
         $usage = "LDAPAdd SearchTerm(s) Attribute Value", 
             "LDAPAdd SearchTerm(s) Attribute Value -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
@@ -780,7 +782,7 @@ function Search-LDAPAndAddAttributeValue
         $parameters['Attribute'] = "Which attribute to modify"
         $parameters['Value'] = "Value to add to the attribute"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -796,7 +798,7 @@ function Search-LDAPAndAddAttributeValue
         $valName = $Value -join ', '
         $oldValue = $ldapObject.$Attribute -join ', '
         if (-not $oldValue) {
-            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+            $oldValue = $ldapObject.Attributes.$Attribute -join ', '
         }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
@@ -823,6 +825,7 @@ function Search-LDAPAndRemoveAttributeValue
     )
 
     if (-not $SearchTerm -or -not $Attribute -or -not $Value) {
+        $description = "Finds objects by search terms and removes Value from Attribute."
         $usage = "LDAPRem SearchTerm(s) Attribute Value", 
             "LDAPRem SearchTerm(s) Attribute Value -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
@@ -830,7 +833,7 @@ function Search-LDAPAndRemoveAttributeValue
         $parameters['Attribute'] = "Which attribute to remove value from"
         $parameters['Value'] = "Which value to remove from attribute"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -845,7 +848,7 @@ function Search-LDAPAndRemoveAttributeValue
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute
         if (-not $oldValue) {
-            $oldValue = $ldapObject.additionalAttributes.$Attribute
+            $oldValue = $ldapObject.Attributes.$Attribute
         }
         try {
             $msg = "'$objName' '$Attribute' is '$($oldValue -join ', ')'"
@@ -871,11 +874,12 @@ function Search-LDAPAndClearAttribute
     )
 
     if (-not $SearchTerm -or -not $Attribute) {
+        $description = "Looks for objects by search terms and removes all values from Attribute."
         $usage = "LDAPClr SearchTerm(s) Attribute"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = "Terms to find objects by"
         $parameters['Attribute'] = "Which attribute to remove values from"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -890,7 +894,7 @@ function Search-LDAPAndClearAttribute
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute
         if (-not $oldValue) {
-            $oldValue = $ldapObject.additionalAttributes.$Attribute
+            $oldValue = $ldapObject.Attributes.$Attribute
         }
         try {
             if ($oldValue) {
@@ -1103,13 +1107,14 @@ function Search-LDAPAndAddGroupMember
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
+        $description = "Finds groups and objects to add as members to said groups. Allows user to pick which objects to add to which groups via an interactive menu."
         $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
             "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help $description -Usage $usage -Parameter $parameters
         return
     }
     if (-not $NoConfirmation.IsPresent) {
@@ -1135,6 +1140,7 @@ function Search-LDAPAndRemoveGroupMember
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
+        $description = "Finds groups and objects to attempt to remove from said groups. Passing '*' as SearchTermMember offers to remove all current members of a group. Allows user to pick which objects to add to which groups via an interactive menu."
         $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
             "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
         $sTMInfo = "Terms to find objects to add to groups, use * to remove all members"
@@ -1142,7 +1148,7 @@ function Search-LDAPAndRemoveGroupMember
         $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['SearchTermMember'] = $sTMInfo
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
     if (-not $NoConfirmation.IsPresent) {
@@ -1200,11 +1206,12 @@ function Search-LDAPAndResetPassword
     # Password: <password>
     
     if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and changes their passwords."
         $usage = "LDAPSetPass SearchTerm(s)", "LDAPSetPass SearchTerm(s) NewPassword"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = "Term to find objects"
         $parameters['NewPassword'] = "Automatically generated if not provided"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
 
@@ -1267,10 +1274,11 @@ function Search-LDAPAndRemove
         [Parameter(Mandatory=$false)][string[]]$SearchTerm
     )
     if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and removes them."
         $usage = "LDAPRemObj SearchTerm(s)"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = "Terms to find objects to remove"
-        Write-Help -Usage $usage -Parameter $parameters
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
     $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
