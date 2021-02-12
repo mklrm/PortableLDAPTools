@@ -6,7 +6,18 @@
 # TODO Just add a function for starters that gets distinguishednames with some sort of 
 #      nested path and get on from there
 
-# TODO Ask for connection values, give ready choices to pick from for things that can (like default ports)
+# TODO Add a connection setup function, ask for connection values, give ready choices 
+#      to pick from for things that can, perhaps offer to search DNS for a domain controller.
+#      Configuration file location is: C:\blaaaaaa...
+#      Press a number to modify an entry
+#      Do a menu along the lines of:
+#      1.         Server : woopdeedoo
+#      2.           Port : 636
+#      3.    User domain : contoso
+#      4.      User name : administrator
+#      5.  User password : <encrypted!>
+#      6.    Search base : dc=contoso,dc=com
+#      7. Authentication : Negotiate
 
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
 #      isn't very readable if you're adding say hundreds or thousands of members to a group 
@@ -39,6 +50,7 @@ $ldapServerName = $config.ldapServerName
 $ldapPort = $config.ldapPort
 $userDomain = $config.userDomain
 $userName = $config.userName
+$userPassword = $config.userPassword
 $authType = $config.authType
 $searchbase = $config.searchbase
 $pageSize = $config.pageSize
@@ -75,32 +87,44 @@ if ($config.logFileFullName) {
 
 function Get-LDAPCredential
 {
-    Write-Host "Enter password for user $userDomain\$($userName):"
-    $userPassword = Read-Host -AsSecureString
+    Param(
+        [Parameter(Mandatory=$true)][SecureString]$Password
+    )
+    if (-not $Password) {
+        Write-Host "Enter password for user $userDomain\$($userName):"
+        $Password = Read-Host -AsSecureString
+    }
 
     if ($authType -eq 'Basic') {
         return New-Object `
             -TypeName System.Net.NetworkCredential `
-            -ArgumentList "$userDomain\$userName", $userPassword
+            -ArgumentList "$userDomain\$userName", $Password
     }
 
     if ($authType -eq 'Negotiate') {
         if ($PSVersionTable.OS -match 'Linux') {
             return New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $userDomain\$userName, $userPassword
+                -ArgumentList $userDomain\$userName, $Password
         } else {
             return  New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $userName, $userPassword, $userDomain
+                -ArgumentList $userName, $Password, $userDomain
         }
     }
 }
 
 function Connect-LDAPServer
 {
+    Param(
+        [Parameter(Mandatory=$false)][SecureString]$Password
+    )
     if ($null -eq $credential) {
-        $Script:credential = Get-LDAPCredential
+        if ($Password) {
+            $Script:credential = Get-LDAPCredential -Password $Password
+        } else {
+            $Script:credential = Get-LDAPCredential
+        }
     }
     $ldapServer = New-Object `
         -TypeName LdapConnection -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
@@ -205,7 +229,11 @@ function Send-LDAP
     )
 
     if ($null -eq $Script:ldapServer) {
-        $Script:ldapServer = Connect-LDAPServer
+        if ($userPassword) {
+            $Script:ldapServer = Connect-LDAPServer -Password $userPassword
+        } else {
+            $Script:ldapServer = Connect-LDAPServer
+        }
     }
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
