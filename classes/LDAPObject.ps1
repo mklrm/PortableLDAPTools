@@ -1,6 +1,10 @@
 
 using namespace System.Security.Principal
 
+if ($psVersionMajor -le 5) {
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Security.Principal") | Out-Null
+}
+
 # NOTE Excellent article about Powershell classes:
 # https://xainey.github.io/2016/powershell-classes-and-concepts/#inheritance
 #

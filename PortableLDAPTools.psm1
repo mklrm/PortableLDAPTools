@@ -19,9 +19,21 @@
 #         and how many failed. Tell user to run 'LDAPSomeCommand' to show all results or 
 #         something. 
 
+# TODO change .additionalAttribute to just attributes as that appears to be more of a standard way of doing 
+#      something aproximating the same thing
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
+
+$psVersionMajor = $PSVersionTable.PSVersion.Major
+$psVersionMinor = $PSVersionTable.PSVersion.Minor
+
+if ($psVersionMajor -le 5) {
+    [System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols")
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Collections.Specialized")
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Security.Principal")
+}
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
@@ -70,7 +82,7 @@ if ($config.logFileFullName) {
 function Get-LDAPCredential
 {
     Write-Host "Enter password for user $userDomain\$($userName):"
-    $userPassword = Read-Host -MaskInput
+    $userPassword = Read-Host -AsSecureString
 
     if ($authType -eq 'Basic') {
         return New-Object `
@@ -249,7 +261,7 @@ function Invoke-LDAPQuery
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
-    $scope = [SearchScope]::Subtree
+    $scope = [System.DirectoryServices.SearchScope]::Subtree
 
     $searchRequest = New-Object -TypeName SearchRequest `
         -ArgumentList $searchbase, $Filter, $scope, $AttributeList
@@ -426,7 +438,7 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
             } elseif ($attributeName -eq 'objectsid') {
                 $values = $srac[$attributeName][0]
                 # NOTE Only Windows is familiar with its SecurityIdentifiers
-                if ($PSVersionTable.OS -match 'Windows') {
+                if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     if ($values -is [string]) { # NOTE Apparently some objects return 
                                                 # the sid differently, such as the 
                                                 # Active Directory Administrators group
@@ -556,7 +568,7 @@ function Select-LDAPObject
             S {
                 $confirmMessage += '[S]elect objects, working...'
                 Write-Host $confirmMessage -ForegroundColor $confirmMessageColor
-                if ($PSVersionTable.OS -match 'Windows') {
+                if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     $selected = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
                         'Enter confirms.'
@@ -566,7 +578,7 @@ function Select-LDAPObject
             D {
                 $confirmMessage += '[D]eselect, working...'
                 Write-Host $confirmMessage -ForegroundColor $confirmMessageColor
-                if ($PSVersionTable.OS -match 'Windows') {
+                if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
                         'Enter confirms.'
@@ -683,7 +695,7 @@ function Select-LDAPTargetObject
         foreach ($ldapObject in $LDAPObjectList) {
             Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
         }
-        if ($PSVersionTable.OS -match 'Windows') {
+        if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
             $footer ='[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
         } else {
             $footer ='[A]pply, Esc to cancel'
@@ -733,6 +745,9 @@ function Search-LDAPAndSetAttributeValue
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute -join ', '
+        if (-not $oldValue) {
+            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+        }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
             Write-Log -Message $msg
@@ -780,6 +795,9 @@ function Search-LDAPAndAddAttributeValue
         $objName = $ldapObject.canonicalname
         $valName = $Value -join ', '
         $oldValue = $ldapObject.$Attribute -join ', '
+        if (-not $oldValue) {
+            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+        }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
             Write-Log -Message $msg
@@ -825,9 +843,12 @@ function Search-LDAPAndRemoveAttributeValue
         -Title "About to remove attribute '$Attribute' from '$Value' the following objects:"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
-        $oldValue = $ldapObject.$Attribute -join ', '
+        $oldValue = $ldapObject.$Attribute
+        if (-not $oldValue) {
+            $oldValue = $ldapObject.additionalAttributes.$Attribute
+        }
         try {
-            $msg = "'$objName' '$Attribute' is '$oldValue'"
+            $msg = "'$objName' '$Attribute' is '$($oldValue -join ', ')'"
             Write-Log -Message $msg
             Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
                 -AttributeName $Attribute -Values $Value
@@ -867,15 +888,15 @@ function Search-LDAPAndClearAttribute
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
-        $oldValue = $ldapObject.$Attribute -join ', '
+        $oldValue = $ldapObject.$Attribute
         if (-not $oldValue) {
-            $oldValue = $ldapObject.additionalAttributes.$Attribute -join ', '
+            $oldValue = $ldapObject.additionalAttributes.$Attribute
         }
         try {
             if ($oldValue) {
-                $msg = "'$objname' '$attribute' is '$oldvalue'"
+                $msg = "'$objname' '$attribute' is '$($oldValue -join ',')'"
                 write-log -message $msg
-                foreach ($value in $ldapObject.$Attribute) {
+                foreach ($value in $oldValue) {
                     Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
                         -AttributeName $Attribute -Values $value -ErrorAction Stop
                 }
@@ -979,7 +1000,7 @@ function Search-LDAPAndModifyGroupMember
     )
 
     $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-    if ($PSVersionTable.OS -notmatch 'Windows') {
+    if ($PSVersionTable.OS -and  $PSVersionTable.OS -notmatch 'Windows') {
         $instructions = '[A]pply, Esc to cancel'
     }
 
