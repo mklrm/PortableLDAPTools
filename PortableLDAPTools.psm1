@@ -11,13 +11,16 @@
 #      Configuration file location is: C:\blaaaaaa...
 #      Press a number to modify an entry
 #      Do a menu along the lines of:
-#      1.         Server : woopdeedoo
-#      2.           Port : 636
-#      3.    User domain : contoso
-#      4.      User name : administrator
-#      5.  User password : <encrypted!>
-#      6.    Search base : dc=contoso,dc=com
-#      7. Authentication : Negotiate
+#      1.    Config name : the contoso connection
+#      2.         Server : woopdeedoo
+#      3.           Port : 636
+#      4.    User domain : contoso
+#      5.      User name : administrator
+#      6.  User password : <encrypted!>
+#      7.    Search base : dc=contoso,dc=com
+#      8. Authentication : Negotiate
+
+# TODO Add multiple configs to a single file
 
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
 #      isn't very readable if you're adding say hundreds or thousands of members to a group 
@@ -46,14 +49,16 @@ $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 $configFile = "$pathMyDocuments\$scriptFileName.xml"
 $config = Import-Clixml -Path $configFile
 
-$ldapServerName = $config.ldapServerName
-$ldapPort = $config.ldapPort
-$userDomain = $config.userDomain
-$userName = $config.userName
-$userPassword = $config.userPassword
-$authType = $config.authType
-$searchbase = $config.searchbase
-$pageSize = $config.pageSize
+$activeConfig = $config | Where-Object { $_.Name -eq 'Default' }
+
+$ldapServerName = $activeConfig.ldapServerName
+$ldapPort = $activeConfig.ldapPort
+$userDomain = $activeConfig.userDomain
+$userName = $activeConfig.userName
+$userPassword = $activeConfig.userPassword
+$authType = $activeConfig.authType
+$searchbase = $activeConfig.searchbase
+$pageSize = $activeConfig.pageSize
 
 # TODO Add to config file:
 $Global:searchLDAPReturnAttributes = 'sAMAccountName,UserPrincipalName,CanonicalName,DistinguishedName'
@@ -191,6 +196,132 @@ function Get-LDAPLogFileList
     if (-not $First -and -not $Last) {
         $logPathList
     }
+}
+
+function New-LDAPConnectionConfiguration
+{
+    Write-Host "Please enter..." -ForegroundColor Green
+    Write-Host "Configuration name is used to pick between different configurations on the same computer."
+    $configName = Read-Host -Prompt "Configuration name"
+    Write-Host "`nLDAP server name could also be an IP address"
+    $configServer = Read-Host -Prompt "LDAP server name"
+    Write-Host "`nActive Directory listens to LDAP in 389 and LDAPS in 636 on default settings"
+    $configPort = Read-Host -Prompt "LDAP server port"
+    Write-Host "`nDistinguishedName of the path where you want searches to start. Generally domain root " + `
+        "would be a good one for the purposes of this script."
+    $configSearchBase = Read-Host -Prompt "SearchBase"
+    Write-Host "`nDomain of the user you're using to connect to the LDAP server"
+    $configUserDomain = Read-Host -Prompt "User domain"
+    Write-Host "`nName of the user you're using to connect to the LDAP server"
+    $configUserName = Read-Host -Prompt "User name"
+    Write-Host "`nPassword of the user you're using to connect to the LDAP server, enter nothing for " `
+        "none and be required to enter a password once after importing the module and running a query. " + `
+        "Thereafter you will not be required to enter the password again for the duration of the " + `
+        "powershell session or until you import the module again."
+    $configUserPassword = Read-Host -Prompt "User password" -AsSecureString
+    Write-Host "`nNegotiation is a pretty good default for Active Directory unless you want to go for " + `
+        "the Kerberos or nothing route."
+    $configAuthentication = Read-Host -Prompt "Authentication (Negotiation is a good default for AD)"
+    Write-host "`nPage size determines how many results the LDAP server is asked to return at a " + `
+        "time which has performance implications of the LDAP server. This script uses 5000 as the " + `
+        "default if you enter none. This shouldn't choke pretty much any server and they tend to " + `
+        "have protection anyway." 
+    $configPageSize = Read-Host -Prompt "Page size"
+
+    $newConfig = [PSCustomObject]@{
+        configName = $configName
+        ldapServerName = $configServer
+        ldapPort = $configPort
+        searchbase = $configSearchBase
+        userDomain = $configUserDomain
+        userName = $configUserName
+        userPassword = $configUserPassword
+        authType = $configAuthentication
+        pageSize = $configPageSize
+    }
+
+    Write-Host "Please review and edit any values you're not happy with." -ForegroundColor Yellow
+    $newConfig = Edit-LDAPConnectionConfiguration -Configuration $newConfig
+
+    if ($newConfig) {
+        $config += $newConfig
+    }
+}
+
+function Edit-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$Configuration
+    )
+    while ($true) {
+        $msg = "1..Configuration name : $($Configuration.configName)`n" + `
+               "2....LDAP server name : $($Configuration.ldapServerName)`n" + `
+               "3....LDAP server port : $($Configuration.ldapPort)`n" + `
+               "4..........SearchBase : $($Configuration.searchbase)`n" + `
+               "5.........User domain : $($Configuration.userDomain)`n" + `
+               "6...........User name : $($Configuration.userName)`n" + `
+               "7.......User password : $($Configuration.userPassword)`n" + `
+               "8......Authentication : $($Configuration.authType)`n" + `
+               "9...........Page size : $($Configuration.pageSize)`n"
+        Write-Host $msg 
+        Write-Host "`nPick a number to modify a setting`n"
+        Write-Host "[A]pply, Esc to cancel"
+        $hideKeysStrokes = $true
+        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        switch ($key) {
+            1 {
+                Write-Host "Enter new value for configuration name"
+                $Configuration.configName = Read-Host -Prompt "New value"
+            }
+            2 {
+                Write-Host "Enter new value for LDAP server name"
+                $Configuration.ldapServerName = Read-Host -Prompt "New value"
+            }
+            3 {
+                Write-Host "Enter new value for LDAP server port"
+                $Configuration.ldapPort = Read-Host -Prompt "New value"
+            }
+            4 {
+                Write-Host "Enter new value for search base"
+                $Configuration.searchbase = Read-Host -Prompt "New value"
+            }
+            5 {
+                Write-Host "Enter new value for user domain"
+                $Configuration.userDomain = Read-Host -Prompt "New value"
+            }
+            6 {
+                Write-Host "Enter new value for user name"
+                $Configuration.userName = Read-Host -Prompt "New value"
+            }
+            7 {
+                Write-Host "Enter new value for user password"
+                $Configuration.userPassword = Read-Host -Prompt "New value"
+            }
+            8 {
+                Write-Host "Enter new value for authentication type"
+                $Configuration.authType = Read-Host -Prompt "New value"
+            }
+            9 {
+                Write-Host "Enter new value for page size"
+                $Configuration.pageSize = Read-Host -Prompt "New value"
+            }
+            A {
+                Write-Host "[A]pplying settings"
+                return $Configuration
+            }
+            Escape {
+                Write-Host "Discarding"
+                return $null
+            }
+        }
+    }
+}
+
+function Remove-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$true)][String[]]$Name
+    )
 }
 
 function Write-Help
