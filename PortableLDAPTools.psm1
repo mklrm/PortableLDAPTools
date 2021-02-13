@@ -6,22 +6,6 @@
 # TODO Just add a function for starters that gets distinguishednames with some sort of 
 #      nested path and get on from there
 
-# TODO Add a connection setup function, ask for connection values, give ready choices 
-#      to pick from for things that can, perhaps offer to search DNS for a domain controller.
-#      Configuration file location is: C:\blaaaaaa...
-#      Press a number to modify an entry
-#      Do a menu along the lines of:
-#      1.    Config name : the contoso connection
-#      2.         Server : woopdeedoo
-#      3.           Port : 636
-#      4.    User domain : contoso
-#      5.      User name : administrator
-#      6.  User password : <encrypted!>
-#      7.    Search base : dc=contoso,dc=com
-#      8. Authentication : Negotiate
-
-# TODO Add multiple configs to a single file
-
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
 #      isn't very readable if you're adding say hundreds or thousands of members to a group 
 #      or whatever else. Could:
@@ -34,6 +18,10 @@
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
+
+$objectClassUser = 'organizationalPerson,person,top,user'
+$objectClassComputer = 'computer,organizationalPerson,person,top,user'
+$objectClassGroup = 'group,top'
 
 $psVersionMajor = $PSVersionTable.PSVersion.Major
 
@@ -673,17 +661,18 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
                 $_.Attributes['distinguishedname'].GetValues('string')
             }
         }
-        $objectClassUser = 'organizationalPerson,person,top,user'
-        $objectClassComputer = 'computer,organizationalPerson,person,top,user'
-        $objectClassGroup = 'group,top'
-        if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
-            New-Object -TypeName LDAPUser -ArgumentList $attributeObject
-        } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassComputer) {
-            New-Object -TypeName LDAPComputer -ArgumentList $attributeObject
-        } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
-            New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
+        if ($psVersionMajor -ge 5) {
+            if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
+                New-Object -TypeName LDAPUser -ArgumentList $attributeObject
+            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassComputer) {
+                New-Object -TypeName LDAPComputer -ArgumentList $attributeObject
+            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
+                New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
+            } else {
+                $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
+            }
         } else {
-            $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
+            $attributeObject
         }
     }
 }
@@ -1212,7 +1201,7 @@ function Search-LDAPAndModifyGroupMember
         $instructions = '[A]pply, Esc to cancel'
     }
 
-    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
     $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
         (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
             Convert-SearchResultAttributeCollectionToPSCustomObject `
@@ -1366,6 +1355,73 @@ function Search-LDAPAndRemoveGroupMember
             -SearchTermMember $SearchTermMember `
             -Operation Remove `
             -NoConfirmation
+    }
+}
+
+function Get-LDAPGroupMemberRecursive
+{
+    Param(
+        [Parameter(Mandatory=$true)][String]$DistinguishedName, # TODO Add the display attribute to this
+        [Parameter(Mandatory=$false)][String[]]$ProcessedGroupDistinguishedNameList
+    )
+    # TODO The function is very, very slow right now because an extra query is being sent to get the 
+    #      displayable string instead of distinguishedname, fix that
+    if (-not $ProcessedGroupDistinguishedNameList) {
+        $ProcessedGroupDistinguishedNameList = @()
+    }
+    if ($ProcessedGroupDistinguishedNameList -notcontains $DistinguishedName) {
+        $ProcessedGroupDistinguishedNameList += $DistinguishedName
+    } else {
+        return
+    }
+    $filter = "(&(memberof=$DistinguishedName))"
+    # TODO I really need to simplify these lines to, say, one line. They keep repeating.
+    $memberList = (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+        Convert-SearchResultAttributeCollectionToPSCustomObject `
+            -SearchResultAttributeCollection $_.Attributes
+    }
+    foreach ($member in $memberList) {
+        $recursiveMemberOfPath = $member.cn
+        foreach ($dn in $ProcessedGroupDistinguishedNameList) {
+            $filter = "(&(distinguishedname=$dn))"
+            # TODO I Seriously gotta get this stuff sorted out, also in this particular function
+            #      I'm now making queries that wouldn't need to if I only had been passed 
+            #      DistinguishedName AND cn (or whatever else attribute I decide to dispaly):
+            $cn = (Invoke-LDAPQuery -Filter $filter -AttributeList cn).Entries | ForEach-Object {
+                Convert-SearchResultAttributeCollectionToPSCustomObject `
+                    -SearchResultAttributeCollection $_.Attributes | Select-Object -ExpandProperty cn
+            }
+            $recursiveMemberOfPath += " < $cn"
+        }
+
+        $recursiveMemberOfPath
+
+        if ((($member.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
+            Get-LDAPGroupMemberRecursive -DistinguishedName $member.distinguishedname `
+                -ProcessedGroupDistinguishedNameList $ProcessedGroupDistinguishedNameList
+        }
+    }
+}
+
+function Get-LDAPGroupMember
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm
+    )
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
+    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
+        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
+            Convert-SearchResultAttributeCollectionToPSCustomObject `
+                -SearchResultAttributeCollection $_.Attributes
+        }
+    }
+    foreach ($ldapGroup in $ldapGroupList) {
+        foreach ($memberDN in $ldapGroup.member) {
+            (Invoke-LDAPQuery -Filter "(&(distinguishedname=$memberDN))").Entries | Foreach-Object {
+                Convert-SearchResultAttributeCollectionToPSCustomObject `
+                    -SearchResultAttributeCollection $_.Attributes
+            }
+        }
     }
 }
 
@@ -1534,7 +1590,9 @@ Export-ModuleMember -Function Search-LDAP,
         Get-LDAPLogFileList,
         New-LDAPConnectionConfiguration,
         Edit-LDAPConnectionConfiguration,
-        Remove-LDAPConnectionConfiguration `
+        Remove-LDAPConnectionConfiguration,
+        Get-LDAPGroupMember,
+        Get-LDAPGroupMemberRecursive `
     -Alias LDAPGet,
         LDAPGetBy,
         LDAPSet,
