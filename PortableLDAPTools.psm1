@@ -49,23 +49,24 @@ $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 $configFile = "$pathMyDocuments\$scriptFileName.xml"
 $config = Import-Clixml -Path $configFile
 
-$activeConfig = $config | Where-Object { $_.Name -eq 'Default' }
+$activeConfig = $config.ConfigurationList | Where-Object { $_.Name -eq $config.ActiveConfigurationName }
 
-$ldapServerName = $activeConfig.ldapServerName
-$ldapPort = $activeConfig.ldapPort
-$userDomain = $activeConfig.userDomain
-$userName = $activeConfig.userName
-$userPassword = $activeConfig.userPassword
-$authType = $activeConfig.authType
-$searchbase = $activeConfig.searchbase
-$pageSize = $activeConfig.pageSize
+$Script:ldapServerName = $activeConfig.ldapServerName
+$Script:ldapPort = $activeConfig.ldapPort
+$Script:userDomain = $activeConfig.userDomain
+$Script:userName = $activeConfig.userName
+$Script:userPassword = $activeConfig.userPassword
+$Script:authType = $activeConfig.authType
+$Script:searchbase = $activeConfig.searchbase
+$Script:pageSize = $activeConfig.pageSize
 
-# TODO Add to config file:
+# TODO Add to config file
+# TODO Also I doubt this actually needs to be Global
 $Global:searchLDAPReturnAttributes = 'sAMAccountName,UserPrincipalName,CanonicalName,DistinguishedName'
 $Global:searchLDAPReturnAttributes = $Global:searchLDAPReturnAttributes -split ','
 
-if (-not $pageSize) {
-    $pageSize = 5000
+if (-not $Script:pageSize) {
+    $Script:pageSize = 5000
 }
 
 $Script:credential = $null
@@ -96,25 +97,25 @@ function Get-LDAPCredential
         [Parameter(Mandatory=$true)][SecureString]$Password
     )
     if (-not $Password) {
-        Write-Host "Enter password for user $userDomain\$($userName):"
+        Write-Host "Enter password for user $($Script:userDomain)\$($Script:userName):"
         $Password = Read-Host -AsSecureString
     }
 
-    if ($authType -eq 'Basic') {
+    if ($Script:authType -eq 'Basic') {
         return New-Object `
             -TypeName System.Net.NetworkCredential `
-            -ArgumentList "$userDomain\$userName", $Password
+            -ArgumentList "$($Script:userDomain)\$($Script:userName)", $Password
     }
 
-    if ($authType -eq 'Negotiate') {
+    if ($Script:authType -eq 'Negotiate') {
         if ($PSVersionTable.OS -match 'Linux') {
             return New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $userDomain\$userName, $Password
+                -ArgumentList $($Script:userDomain)\$($Script:userName), $Password
         } else {
             return  New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $userName, $Password, $userDomain
+                -ArgumentList $Script:userName, $Password, $Script:userDomain
         }
     }
 }
@@ -124,7 +125,7 @@ function Connect-LDAPServer
     Param(
         [Parameter(Mandatory=$false)][SecureString]$Password
     )
-    if ($null -eq $credential) {
+    if ($null -eq $Script:credential) {
         if ($Password) {
             $Script:credential = Get-LDAPCredential -Password $Password
         } else {
@@ -132,7 +133,8 @@ function Connect-LDAPServer
         }
     }
     $ldapServer = New-Object `
-        -TypeName LdapConnection -ArgumentList "$($ldapServerName):$ldapPort", $credential, $authType
+        -TypeName LdapConnection -ArgumentList "$($Script:ldapServerName):$($Script:ldapPort)", 
+            $Script:credential, $Script:authType
 
     $ldapServer.SessionOptions.SecureSocketLayer = $true
     $ldapServer.SessionOptions.ProtocolVersion = 3
@@ -207,25 +209,29 @@ function New-LDAPConnectionConfiguration
     $configServer = Read-Host -Prompt "LDAP server name"
     Write-Host "`nActive Directory listens to LDAP in 389 and LDAPS in 636 on default settings"
     $configPort = Read-Host -Prompt "LDAP server port"
-    Write-Host "`nDistinguishedName of the path where you want searches to start. Generally domain root " + `
-        "would be a good one for the purposes of this script."
+    $msg = "`nDistinguishedName of the path where you want searches to start. Generally domain root " 
+    $msg += "would be a good one for the purposes of this script."
+    Write-Host $msg
     $configSearchBase = Read-Host -Prompt "SearchBase"
     Write-Host "`nDomain of the user you're using to connect to the LDAP server"
     $configUserDomain = Read-Host -Prompt "User domain"
     Write-Host "`nName of the user you're using to connect to the LDAP server"
     $configUserName = Read-Host -Prompt "User name"
-    Write-Host "`nPassword of the user you're using to connect to the LDAP server, enter nothing for " `
-        "none and be required to enter a password once after importing the module and running a query. " + `
-        "Thereafter you will not be required to enter the password again for the duration of the " + `
-        "powershell session or until you import the module again."
+    $msg = "`nPassword of the user you're using to connect to the LDAP server, enter nothing for " 
+    $msg += "none and be required to enter a password once after importing the module and running a query. " 
+    $msg += "Thereafter you will not be required to enter the password again for the duration of the "
+    $msg += "powershell session or until you import the module again."
+    Write-Host $msg
     $configUserPassword = Read-Host -Prompt "User password" -AsSecureString
-    Write-Host "`nNegotiation is a pretty good default for Active Directory unless you want to go for " + `
-        "the Kerberos or nothing route."
+    $msg = "`nNegotiation is a pretty good default for Active Directory unless you want to go for "
+    $msg += "the Kerberos or nothing route."
+    Write-Host $msg
     $configAuthentication = Read-Host -Prompt "Authentication (Negotiation is a good default for AD)"
-    Write-host "`nPage size determines how many results the LDAP server is asked to return at a " + `
-        "time which has performance implications of the LDAP server. This script uses 5000 as the " + `
-        "default if you enter none. This shouldn't choke pretty much any server and they tend to " + `
-        "have protection anyway." 
+    $msg =  "`nPage size determines how many results the LDAP server is asked to return at a "
+    $msg +=  "time which has performance implications of the LDAP server. This script uses 5000 as the "
+    $msg += "default if you enter none. This shouldn't choke pretty much any server and they tend to "
+    $msg += "have protection anyway." 
+    Write-Host $msg
     $configPageSize = Read-Host -Prompt "Page size"
 
     $newConfig = [PSCustomObject]@{
@@ -240,11 +246,49 @@ function New-LDAPConnectionConfiguration
         pageSize = $configPageSize
     }
 
-    Write-Host "Please review and edit any values you're not happy with." -ForegroundColor Yellow
+    Write-Host "`nPlease review and edit any values you're not happy with." -ForegroundColor Yellow
     $newConfig = Edit-LDAPConnectionConfiguration -Configuration $newConfig
 
     if ($newConfig) {
-        $config += $newConfig
+        $config.ConfigurationList += $newConfig
+        $hideKeysStrokes = $true
+        Write-Host "Load the configuration [Y/N]?" -ForegroundColor Yellow
+        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        switch ($key) {
+            Y {
+                $Script:ldapServerName = $newConfig.ldapServerName
+                $Script:ldapPort = $newConfig.ldapPort
+                $Script:userDomain = $newConfig.userDomain
+                $Script:userName = $newConfig.userName
+                $Script:userPassword = $newConfig.userPassword
+                $Script:authType = $newConfig.authType
+                $Script:searchbase = $newConfig.searchbase
+                $Script:pageSize = $newConfig.pageSize
+                Write-Host "Configuration loaded."
+            }
+            N {
+                Write-Host "You picked [N]o."
+            }
+            Default {
+                Write-Host "I'll take that as a [N]o."
+            }
+        }
+        Write-Host "Set the configuration as active (meaning it's loaded when the module is imported) [Y/N]?" `
+            -Foregroundcolor Yellow
+        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        switch ($key) {
+            Y {
+                $config.ActiveConfigurationName = $newConfig.Name
+                Write-Host "Configuration set as active."
+            }
+            N {
+                Write-Host "You picked [N]o."
+            }
+            Default {
+                Write-Host "I'll take that as a [N]o."
+            }
+        }
+        $config | Export-Clixml -Path $configFile
     }
 }
 
@@ -265,43 +309,43 @@ function Edit-LDAPConnectionConfiguration
                "9...........Page size : $($Configuration.pageSize)`n"
         Write-Host $msg 
         Write-Host "`nPick a number to modify a setting`n"
-        Write-Host "[A]pply, Esc to cancel"
+        Write-Host "[A]pply, Esc to cancel`n"
         $hideKeysStrokes = $true
         $key = ([Console]::ReadKey($hideKeysStrokes)).Key
         switch ($key) {
-            1 {
+            D1 {
                 Write-Host "Enter new value for configuration name"
                 $Configuration.configName = Read-Host -Prompt "New value"
             }
-            2 {
+            D2 {
                 Write-Host "Enter new value for LDAP server name"
                 $Configuration.ldapServerName = Read-Host -Prompt "New value"
             }
-            3 {
+            D3 {
                 Write-Host "Enter new value for LDAP server port"
                 $Configuration.ldapPort = Read-Host -Prompt "New value"
             }
-            4 {
+            D4 {
                 Write-Host "Enter new value for search base"
                 $Configuration.searchbase = Read-Host -Prompt "New value"
             }
-            5 {
+            D5 {
                 Write-Host "Enter new value for user domain"
                 $Configuration.userDomain = Read-Host -Prompt "New value"
             }
-            6 {
+            D6 {
                 Write-Host "Enter new value for user name"
                 $Configuration.userName = Read-Host -Prompt "New value"
             }
-            7 {
+            D7 {
                 Write-Host "Enter new value for user password"
-                $Configuration.userPassword = Read-Host -Prompt "New value"
+                $Configuration.userPassword = Read-Host -Prompt "New value" -AsSecureString
             }
-            8 {
+            D8 {
                 Write-Host "Enter new value for authentication type"
                 $Configuration.authType = Read-Host -Prompt "New value"
             }
-            9 {
+            D9 {
                 Write-Host "Enter new value for page size"
                 $Configuration.pageSize = Read-Host -Prompt "New value"
             }
@@ -322,6 +366,7 @@ function Remove-LDAPConnectionConfiguration
     Param(
         [Parameter(Mandatory=$true)][String[]]$Name
     )
+    # TODO Implement
 }
 
 function Write-Help
@@ -360,8 +405,8 @@ function Send-LDAP
     )
 
     if ($null -eq $Script:ldapServer) {
-        if ($userPassword) {
-            $Script:ldapServer = Connect-LDAPServer -Password $userPassword
+        if ($Script:userPassword) {
+            $Script:ldapServer = Connect-LDAPServer -Password $Script:userPassword
         } else {
             $Script:ldapServer = Connect-LDAPServer
         }
@@ -421,9 +466,9 @@ function Invoke-LDAPQuery
     $scope = [System.DirectoryServices.SearchScope]::Subtree
 
     $searchRequest = New-Object -TypeName SearchRequest `
-        -ArgumentList $searchbase, $Filter, $scope, $AttributeList
+        -ArgumentList $Script:searchbase, $Filter, $scope, $AttributeList
 
-    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $pageSize
+    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $Script:pageSize
     $searchRequest.Controls.Add($pageRequest)
     
     $searchResponse = Send-LDAP -Request $searchRequest
@@ -1486,7 +1531,10 @@ Export-ModuleMember -Function Search-LDAP,
         Add-LDAPObject,
         Search-LDAPAndRemove,
         Search-LDAPAndResetPassword,
-        Get-LDAPLogFileList `
+        Get-LDAPLogFileList,
+        New-LDAPConnectionConfiguration,
+        Edit-LDAPConnectionConfiguration,
+        Remove-LDAPConnectionConfiguration `
     -Alias LDAPGet,
         LDAPGetBy,
         LDAPSet,
