@@ -2,10 +2,6 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
-# TODO Recursive group membership handleification
-# TODO Just add a function for starters that gets distinguishednames with some sort of 
-#      nested path and get on from there
-
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
 #      isn't very readable if you're adding say hundreds or thousands of members to a group 
 #      or whatever else. Could:
@@ -14,12 +10,6 @@
 #      2. Only echo unsuccessful results and give stats of how many actions were successful 
 #         and how many failed. Tell user to run 'LDAPSomeCommand' to show all results or 
 #         something. 
-
-# TODO Simplify these:
-#    $memberList = (Invoke-LDAPQuery -Filter $filter -AttributeList DistinguishedName, $DisplayProperty).Entries | ForEach-Object {
-#        Convert-SearchResultAttributeCollectionToPSCustomObject `
-#            -SearchResultAttributeCollection $_.Attributes
-#    }
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
@@ -447,11 +437,26 @@ function Invoke-LDAPQuery
         [Parameter(Mandatory=$false)][String[]]$AttributeList
     )
 
+    $singleAttribute = $false
+    if ($AttributeList.Count -eq 1) {
+        $singleAttribute = $AttributeList[0]
+    }
+
     if (-not $AttributeList) {
         $AttributeList = '*'
-    } elseif ($AttributeList -contains 'canonicalname' -and  $AttributeList -notcontains 'distinguishedname') {
+    } else {
+        # Not having objectclass in objects will break parts of this script
+        if ($AttributeList -notcontains 'objectclass') {
+            $AttributeList += 'objectclass'
+        }
+        # Let's at least have something to display
+        if ($AttributeList -notcontains 'cn') {
+            $AttributeList += 'cn'
+        }
         # Canonicalname is constructed from distinguishedname so going to be needing that
-        $AttributeList += 'distinguishedname'
+        if ($AttributeList -contains 'canonicalname' -and  $AttributeList -notcontains 'distinguishedname') {
+            $AttributeList += 'distinguishedname'
+        }
     }
 
     # NOTE Search paging explained here:
@@ -463,19 +468,35 @@ function Invoke-LDAPQuery
         -ArgumentList $Script:searchbase, $Filter, $scope, $AttributeList
 
     $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $Script:pageSize
-    $searchRequest.Controls.Add($pageRequest)
+    $searchRequest.Controls.Add($pageRequest) | Out-Null
     
+    # TODO Send-LDAP throws an error when $Script:ldapServer.SendRequest($Request) is called and 
+    #      'member' was passed on AttributeList, fix
+    # TODO Also this first $searchResponse not being returned anywhere still doesn't seem right 
+    #      although this all seems to be working, look into it
     $searchResponse = Send-LDAP -Request $searchRequest
     if ($searchResponse.Controls.Length -ne 1 -or
         $searchResponse.Controls[0] -isnot [PageResultResponseControl]) {
         throw "The server cannot page the result set"
-        return
     }
     while ($true) {
         $pageResponse = [PageResultResponseControl]$searchResponse.Controls[0]
         $pageRequest.Cookie = $pageResponse.Cookie
         $searchResponse = Send-LDAP -Request $searchRequest
-        $searchResponse
+        if ($singleAttribute) {
+            # Convert the single attribute
+            $searchResponse.Entries | ForEach-Object {
+                # TODO This absolutely will not produce the right result for all attributes, 
+                #      I'll have to modify Convert-InputObject to accept 
+                #      and only convert single attributes or something. Maybe I should move 
+                #      some of the logic outside of it or something as it is a pretty awful read
+                $_.Attributes[$singleAttribute].GetValues('string')
+            }
+        } else {
+            $searchResponse.Entries | ForEach-Object {
+                Convert-SearchResultattributeCollection -InputObject $_.Attributes
+            }
+        }
         if ($pageResponse.Cookie.Length -eq 0) {
             return
         }
@@ -605,13 +626,12 @@ function ConvertTo-DistinguishedName
     }
 }
 
-function Convert-SearchResultAttributeCollectionToPSCustomObject
+function Convert-SearchResultattributeCollection
 {
     Param(
-        [Parameter(Mandatory=$false)]
-        [SearchResultAttributeCollection[]]$SearchResultAttributeCollection
+        [Parameter(Mandatory=$false)][SearchResultAttributeCollection[]]$InputObject
     )
-    foreach ($srac in $SearchResultAttributeCollection) {
+    foreach ($srac in $InputObject) {
         $attributeObject = [PSCustomObject]@{}
         $attributeNameList = $srac.Keys
         if ($srac.Keys -contains 'distinguishedname' -and $attributeNameList -notcontains 'canonicalname') {
@@ -662,10 +682,7 @@ function Convert-SearchResultAttributeCollectionToPSCustomObject
         }
         if (($attributeObject | Get-Member -MemberType NoteProperty).Name -contains 'member') {
             $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
-            $attributeObject.member = (Invoke-LDAPQuery -Filter $filter `
-                    -AttributeList 'distinguishedname').Entries | Foreach-Object {
-                $_.Attributes['distinguishedname'].GetValues('string')
-            }
+            $attributeObject.member = Invoke-LDAPQuery -Filter $filter -AttributeList 'distinguishedname'
         }
         if ($psVersionMajor -ge 5) {
             if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
@@ -823,30 +840,9 @@ function Search-LDAP
 
     $result = @()
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
-        # TODO Using -AttributeList converts LDAPObjects to PSCustomObjects right now, fix this
-        (Invoke-LDAPQuery -Filter $filter -AttributeList $ReturnAttribute).Entries | ForEach-Object {
-            $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
-        }
+        $result += Invoke-LDAPQuery -Filter $filter -AttributeList $ReturnAttribute
     }
-    if (-not $ReturnAttribute) {
-        $result | Sort-Object -Property canonicalname
-    } else {
-        # TODO Using $ReturnAttribute converts LDAPObjects to PSCustomObjects right now, fix this
-        # TODO Also does this actually do anything since Invoke-LDAPQuery already has -AttributeList
-        $selectSplat = @{}
-        if ($ReturnAttribute.Count -eq 1) {
-            $selectSplat.ExpandProperty = $ReturnAttribute[0]
-        } elseif ($ReturnAttribute.Count -gt 1) {
-            $selectSplat.Property = $ReturnAttribute
-        }
-        foreach ($entry in $result) {
-            if ($ReturnAttribute.Count -eq 1 -and (-not $entry.$ReturnAttribute)) {
-                continue
-            }
-            $entry | Select-Object @selectSplat
-        }
-    }
+    $result
 }
 
 function Search-LDAPByAttributeValue
@@ -872,11 +868,7 @@ function Search-LDAPByAttributeValue
     $filters = Get-LDAPAttributeValueQueryFilter `
         -SearchAttribute $SearchAttribute -AttributeValue $AttributeValue
     foreach ($filter in $filters) {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            $result += Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes | `
-                    Select-Object -Property $ReturnAttribute
-        }
+        $result += Invoke-LDAPQuery -Filter $filter
     }
     if (-not $ReturnAttribute) {
         $result | Sort-Object -Property canonicalname
@@ -1131,10 +1123,7 @@ function Get-MembershipMap
         $LDAPMemberModifyList = $LDAPMemberList
         if ($LDAPMemberList -eq '*') {
             $filter = "(&(memberof=$($ldapGroup.DistinguishedName)))"
-            $LDAPMemberModifyList = (Invoke-LDAPQuery -Filter $filter).Entries | Foreach-Object {
-                Convert-SearchResultAttributeCollectionToPSCustomObject `
-                    -SearchResultAttributeCollection $_.Attributes
-            }
+            $LDAPMemberModifyList = Invoke-LDAPQuery -Filter $filter
         }
         foreach ($ldapMember in $LDAPMemberModifyList) {
             $membershipMap += [PSCustomObject]@{
@@ -1210,12 +1199,9 @@ function Search-LDAPAndModifyGroupMember
         $instructions = '[A]pply, Esc to cancel'
     }
 
-    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
     $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
-        }
+        Invoke-LDAPQuery -Filter $filter
     }
 
     if ($Operation -eq 'Remove' -and $SearchTermMember -eq '*') {
@@ -1248,7 +1234,7 @@ function Search-LDAPAndModifyGroupMember
             if (-not ($memberCache.Keys -contains $groupDN)) {
                 $memberFilter = "(&(memberof=$groupDN))"
                 $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
-                    -AttributeList 'distinguishedname').Entries.distinguishedname)
+                    -AttributeList 'distinguishedname'))
             }
             try {
                 if ($Operation -eq 'Add') {
@@ -1375,8 +1361,11 @@ function Get-LDAPGroupMemberRecursive
         [Parameter(Mandatory=$false)][LDAPGroup[]]$ProcessedLDAPGroupList
     )
 
-    # TODO Tell user that the function does not support versions of powershell without 
-    #      support for classes (think it's < 5.0)
+    if ($psVersionMajor -lt 5) {
+        $msg  = "This function uses classes which were inroduced in version "
+        $msg += "5.0 of powershell which itself is ancient, please upgrade."
+        return
+    }
 
     # Return if the group has already been processed, otherwise we'll likely end up in an endless loop
     if ($ProcessedLDAPGroupList.distinguishedname -contains $LDAPGroup.distinguishedname) {
@@ -1389,14 +1378,9 @@ function Get-LDAPGroupMemberRecursive
 
     $ProcessedLDAPGroupList += $LDAPGroup
 
-    #$attributeList = 'distinguishedname', $DisplayPropertyName
+    $attributeList = 'distinguishedname', $DisplayPropertyName
     $filter = "(&(memberof=$($LDAPGroup.distinguishedname)))"
-    # TODO Return to doing this when -AttributeList no longer converts LDAPObjects to PSCustomObjects
-    #$memberList = (Invoke-LDAPQuery -Filter $filter -AttributeList $attributeList).Entries | ForEach-Object {
-    $memberList = (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-        Convert-SearchResultAttributeCollectionToPSCustomObject `
-            -SearchResultAttributeCollection $_.Attributes
-    }
+    $memberList = Invoke-LDAPQuery -Filter $filter -AttributeList $attributeList
 
     $recursiveMemberOfPath = ''
     foreach ($processedLDAPGroup in $ProcessedLDAPGroupList) {
@@ -1421,7 +1405,7 @@ function Search-LDAPGroupAndGetMembersRecursive
         [Parameter(Mandatory=$false)][String]$DisplayPropertyName = 'cn'
     )
 
-    if (-not $SearchTermGroup -or -not $SearchTermMember) {
+    if (-not $SearchTerm) {
         $description = "Finds groups by search terms and attempts to represent "
         $description += "members recursively in an easily readable form."
         $usage = "LDAPGetMemberRecursive SearchTerm(s)", 
@@ -1433,18 +1417,16 @@ function Search-LDAPGroupAndGetMembersRecursive
         return
     }
 
-    # TODO Tell user that the function does not support versions of powershell without 
-    #      support for classes (think it's < 5.0)
+    if ($psVersionMajor -lt 5) {
+        $msg  = "This function uses classes which were inroduced in version "
+        $msg += "5.0 of powershell which itself is ancient, please upgrade."
+        return
+    }
 
-    #$attributeList = 'distinguishedname', $DisplayPropertyName
+    $attributeList = 'distinguishedname', $DisplayPropertyName
     $groupList = @()
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass group)) {
-        # TODO Enabled this again when using 
-        #(Invoke-LDAPQuery -Filter $filter -AttributeList $attributeList).Entries | ForEach-Object {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            $groupList += Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
-        }
+        $groupList += Invoke-LDAPQuery -Filter $filter -AttributeList $attributeList
     }
     
     foreach ($group in $groupList) {
@@ -1459,17 +1441,11 @@ function Get-LDAPGroupMember
     )
     $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
     $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        (Invoke-LDAPQuery -Filter $filter).Entries | ForEach-Object {
-            Convert-SearchResultAttributeCollectionToPSCustomObject `
-                -SearchResultAttributeCollection $_.Attributes
-        }
+        Invoke-LDAPQuery -Filter $filter
     }
     foreach ($ldapGroup in $ldapGroupList) {
         foreach ($memberDN in $ldapGroup.member) {
-            (Invoke-LDAPQuery -Filter "(&(distinguishedname=$memberDN))").Entries | Foreach-Object {
-                Convert-SearchResultAttributeCollectionToPSCustomObject `
-                    -SearchResultAttributeCollection $_.Attributes
-            }
+            Invoke-LDAPQuery -Filter "(&(distinguishedname=$memberDN))"
         }
     }
 }
@@ -1624,8 +1600,11 @@ Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
 Set-Alias -Name LDAPRemObj -Value Search-LDAPAndRemove
 Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
+Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
 
-Export-ModuleMember -Function Search-LDAP, 
+Export-ModuleMember -Function `
+        Invoke-LDAPQuery,        
+        Search-LDAP, 
         Search-LDAPByAttributeValue, 
         Search-LDAPAndSetAttributeValue, 
         Search-LDAPAndAddAttributeValue, 
@@ -1655,4 +1634,3 @@ Export-ModuleMember -Function Search-LDAP,
         LDAPSetPass,
         LDAPGetLogList,
         LDAPGetMemberRecursive
-
