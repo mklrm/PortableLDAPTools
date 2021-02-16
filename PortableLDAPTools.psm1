@@ -7,9 +7,9 @@
 #      or whatever else. Could:
 #      1. Only display some arbitrary number of entries in the preview and let the user know 
 #         that there's more on the list and the list can be accessed via a New-Menu shortcut
-#      2. Only echo unsuccessful results and give stats of how many actions were successful 
-#         and how many failed. Tell user to run 'LDAPSomeCommand' to show all results or 
-#         something. 
+
+# TODO There's a lot of repetition again particularly between the functions that modify objects, 
+#      might want to try and centralize all of that as much as possible
 
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
@@ -886,6 +886,7 @@ function Select-LDAPTargetObject
     $apply = $false
     while ($apply -eq $false) {
         Write-Host $Title -ForegroundColor Yellow
+        $i = 0 
         foreach ($ldapObject in $LDAPObjectList) {
             Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
         }
@@ -937,6 +938,8 @@ function Search-LDAPAndSetAttributeValue
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
+    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute -join ', '
@@ -945,17 +948,26 @@ function Search-LDAPAndSetAttributeValue
         }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
             Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
             $msg = "'$objName' '$Attribute' set to '$Value'"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
             $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            $failures++
         }
     }
+    $color = 'Green' # TODO Define color somewhere
+    if ($failure -gt 0) {
+        $color = 'Red' # TODO Define color somewhere
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
 }
 
 function Search-LDAPAndAddAttributeValue
@@ -987,6 +999,8 @@ function Search-LDAPAndAddAttributeValue
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to add attribute '$Attribute' to '$Value' on the following objects:"
+    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.canonicalname
         $valName = $Value -join ', '
@@ -996,17 +1010,26 @@ function Search-LDAPAndAddAttributeValue
         }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
             Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Add `
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
             $msg = "'$objName' '$Attribute' value '$valName' added"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
             $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            $failures++
         }
     }
+    $color = 'Green' # TODO Define color somewhere
+    if ($failure -gt 0) {
+        $color = 'Red' # TODO Define color somewhere
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
 }
 
 function Search-LDAPAndRemoveAttributeValue
@@ -1037,7 +1060,9 @@ function Search-LDAPAndRemoveAttributeValue
         return
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
-        -Title "About to remove attribute '$Attribute' from '$Value' the following objects:"
+        -Title "About to remove value '$Value' attribute '$Attribute' the following objects:"
+    Write-Host "Working" -NoNewLine -ForegroundColor Green # TODO Define color somewhere
+    $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute
@@ -1046,17 +1071,26 @@ function Search-LDAPAndRemoveAttributeValue
         }
         try {
             $msg = "'$objName' '$Attribute' is '$($oldValue -join ', ')'"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
             Set-LDAPObject -DistinguishedName $ldapObject.distinguishedname -Operation Delete `
                 -AttributeName $Attribute -Values $Value
             $msg = "'$objName' '$Attribute' '$Value' removed"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
             $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            $failures++
         }
     }
+    $color = 'Green' # TODO Define color somewhere
+    if ($failure -gt 0) {
+        $color = 'Red' # TODO Define color somewhere
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
 }
 
 function Search-LDAPAndClearAttribute
@@ -1084,6 +1118,8 @@ function Search-LDAPAndClearAttribute
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
+    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute
@@ -1093,23 +1129,31 @@ function Search-LDAPAndClearAttribute
         try {
             if ($oldValue) {
                 $msg = "'$objname' '$attribute' is '$($oldValue -join ',')'"
-                write-log -message $msg
+                write-log -message $msg -NoEcho
                 foreach ($value in $oldValue) {
                     Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Delete `
                         -AttributeName $Attribute -Values $value -ErrorAction Stop
                 }
                 $msg = "'$objName' '$Attribute' cleared"
-                Write-Log -Message $msg
+                Write-Log -Message $msg -NoEcho
             } else {
                 $msg = "'$objname' '$attribute' is already not set"
-                write-log -message $msg
+                write-log -message $msg -NoEcho
             }
+            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
             $msg = "Error clearing '$objName' '$Attribute': $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg -Level Error -NoEcho
+            $failures++
         }
     }
+    $color = 'Green' # TODO Define color somewhere
+    if ($failure -gt 0) {
+        $color = 'Red' # TODO Define color somewhere
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
 }
 
 function Get-MembershipMap
@@ -1212,6 +1256,8 @@ function Search-LDAPAndModifyGroupMember
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         if (-not $NoConfirmation.IsPresent) {
+            # TODO Rename $addToMap and similar var names in this function as they 
+            #      now pertain to the removal action too
             $addToMap = Select-LDAPGroupMemberModificationTarget `
                 -LDAPGroupList $ldapGroupList `
                 -LDAPMemberList $ldapMemberList `
@@ -1226,6 +1272,8 @@ function Search-LDAPAndModifyGroupMember
         #      possibility something else modifies it while this 
         #      function is doing the same
         $memberCache = @{}
+        Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+        $failures = 0
         foreach ($addtoEntry in $addToMap) {
             $groupDN = $addtoEntry.Group.DistinguishedName
             $memberDN = $addtoEntry.Member.DistinguishedName
@@ -1240,25 +1288,26 @@ function Search-LDAPAndModifyGroupMember
                 if ($Operation -eq 'Add') {
                     if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
                         $msg = "'$groupCanName' already contains '$groupMemName'"
-                        Write-Log -Message $msg
+                        Write-Log -Message $msg -NoEcho
                     } else {
                         Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
                             -Values $memberDN -ErrorAction Stop
                         $msg = "'$groupCanName' member '$groupMemName' added"
-                        Write-Log -Message $msg
+                        Write-Log -Message $msg -NoEcho
                     }
                 }
                 if ($Operation -eq 'Remove') {
                     if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
                         $msg = "'$groupCanName' does not contain '$groupMemName'"
-                        Write-Log -Message $msg
+                        Write-Log -Message $msg -NoEcho
                     } else {
                         Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
                             -Values $memberDN -ErrorAction Stop
                         $msg = "'$groupCanName' member '$groupMemName' removed"
-                        Write-Log -Message $msg
+                        Write-Log -Message $msg -NoEcho
                     }
                 }
+                Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
             } catch {
                 $err = $_.ToString()
                 if ($Operation -eq 'Add') {
@@ -1266,9 +1315,17 @@ function Search-LDAPAndModifyGroupMember
                 } elseif ($Operation -eq 'Remove') {
                     $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
                 }
-                Write-Log -Message $msg -Level Error
+                Write-Log -Message $msg -Level Error -NoEcho
+                Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+                $failures++
             }                
         }
+        $color = 'Green' # TODO Define color somewhere
+        if ($failure -gt 0) {
+            $color = 'Red' # TODO Define color somewhere
+        }
+        Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+            -ForegroundColor $color
     } else {
         if ($Operation -eq 'Add') {
             if ($ldapGroupList.Count -gt 0) {
@@ -1573,19 +1630,30 @@ function Search-LDAPAndRemove
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove the following object(s):"
+    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         try {
             Remove-LDAPObject -DistinguishedName $ldapObject.DistinguishedName `
                 -ErrorAction Stop
             $msg = "'$objName' removed"
-            Write-Log -Message $msg
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
             $msg = "Error removing '$objName': $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            $failures++
         }
     }
+    $color = 'Green' # TODO Define color somewhere
+    if ($failure -gt 0) {
+        $color = 'Red' # TODO Define color somewhere
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
 }
 
 Set-Alias -Name LDAPGet -Value Search-LDAP
