@@ -13,7 +13,7 @@ Class LDAPObject
     [String] $canonicalname
     [String] $cn
     [String] $distinguishedname
-    [DateTime[]] $dscorepropagationdata
+    [DateTime[]] $DsCorePropagationData
     [Int] $instancetype
     [String] $name
     [String] $objectcategory
@@ -21,8 +21,8 @@ Class LDAPObject
     [Guid] $objectguid
     [Int] $usnchanged
     [Int] $usncreated
-    [DateTime] $whenchanged
-    [DateTime] $whencreated
+    [DateTime] $WhenChanged
+    [DateTime] $WhenCreated
     [PSCustomObject[]] $attributes
 
     LDAPObject([PSCustomObject[]] $AttributeObject)
@@ -30,7 +30,12 @@ Class LDAPObject
         $unhandledAttributeList = @()
         $attributeList = ($AttributeObject | Get-Member -MemberType NoteProperty).Name
 
+        $skipAutomaticConversionList = 'dscorepropagationdata', 'whenchanged', 'whencreated'
+
         foreach ($attributeName in $attributeList) {
+            if ($skipAutomaticConversionList -contains $attributeName) {
+                continue
+            }
             try {
                 $this.$attributeName = $AttributeObject.$attributeName
             } catch {
@@ -40,6 +45,26 @@ Class LDAPObject
                     throw $_
                 }
             }
+        }
+
+        if ($AttributeObject.dscorepropagationdata) {
+            $values = $AttributeObject.dscorepropagationdata
+            foreach ($value in $values) {
+                $this.DsCorePropagationData += [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
+            }
+            $unhandledAttributeList = $unhandledAttributeList | Where-Object { $_ -ne 'dscorepropagationdata' }
+        }
+
+        if ($AttributeObject.whenchanged) {
+            $value = $AttributeObject.whenchanged
+            $this.WhenChanged = [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
+            $unhandledAttributeList = $unhandledAttributeList | Where-Object { $_ -ne 'whenchanged' }
+        }
+        
+        if ($AttributeObject.whencreated) {
+            $value = $AttributeObject.whencreated
+            $this.WhenCreated = [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
+            $unhandledAttributeList = $unhandledAttributeList | Where-Object { $_ -ne 'whencreated' }
         }
         
         if ($unhandledAttributeList.count -gt 0) {

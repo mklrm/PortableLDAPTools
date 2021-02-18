@@ -675,12 +675,6 @@ function Convert-SearchResultAttributeCollection
                 $values = New-Object -TypeName System.Guid -ArgumentList @(,$values)
             } else {
                 $values = $attributeList[$attributeName].GetValues('string')
-                $values = foreach ($value in $values) {
-                    if ($value -match '\.0Z$') {
-                        $value = [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
-                    }
-                    $value
-                }
             }
             $attributeObject | Add-Member -MemberType NoteProperty `
                 -Name $attributeName -Value $values
