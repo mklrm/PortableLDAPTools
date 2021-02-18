@@ -7,7 +7,7 @@ if ($psVersionMajor -le 5) {
 
 # NOTE Excellent article about Powershell classes:
 # https://xainey.github.io/2016/powershell-classes-and-concepts/#inheritance
-#
+
 Class LDAPObject
 {
     [String] $canonicalname
@@ -23,11 +23,11 @@ Class LDAPObject
     [Int] $usncreated
     [DateTime] $whenchanged
     [DateTime] $whencreated
-    [PSCustomObject[]] $additionalattributes
+    [PSCustomObject[]] $attributes
 
     LDAPObject([PSCustomObject[]] $AttributeObject)
     {
-        $additionalAttributeList = @()
+        $unhandledAttributeList = @()
         $attributeList = ($AttributeObject | Get-Member -MemberType NoteProperty).Name
 
         foreach ($attributeName in $attributeList) {
@@ -35,15 +35,15 @@ Class LDAPObject
                 $this.$attributeName = $AttributeObject.$attributeName
             } catch {
                 if ($_.ToString() -match "The property '.*?' cannot be found on this object.") {
-                    $additionalAttributeList += $attributeName
+                    $unhandledAttributeList += $attributeName
                 } else {
                     throw $_
                 }
             }
         }
         
-        if ($additionalAttributeList.count -gt 0) {
-            $this.additionalattributes = $AttributeObject | Select-Object -Property $additionalAttributeList
+        if ($unhandledAttributeList.count -gt 0) {
+            $this.attributes = $AttributeObject | Select-Object -Property $unhandledAttributeList
         }
     }
 
@@ -60,8 +60,8 @@ Class LDAPGroup : LDAPObject
     [String] $samaccountname
     [Int] $samaccounttype
     [String] $description
-    [String[]] $member
-    [String[]] $memberof
+    [String[]] $Member
+    [String[]] $MemberOf
     [Int] $admincount
     [Boolean] $iscriticalsystemobject
     [Int] $systemflags
@@ -79,11 +79,10 @@ Class LDAPAuthenticatedObject : LDAPObject
     [Int] $codepage
     [Int] $countrycode
     [Boolean] $iscriticalsystemobject
-    [Int64] $lastlogoff # TODO [DateTime]
-    [Int64] $lastlogon # TODO [DateTime]
-    [Int64] $lastlogontimestamp # TODO [DateTime]
+    [Int64] $LastLogonDate
+    [Int64] $LastLogonTimestampDate
     [Int] $logoncount
-    [String[]] $memberof
+    [String[]] $MemberOf
     [SecurityIdentifier] $objectsid
     [Int] $primarygroupid
     [DateTime] $pwdlastset
@@ -93,6 +92,12 @@ Class LDAPAuthenticatedObject : LDAPObject
 
     LDAPAuthenticatedObject([PSCustomObject[]] $AttributeObject) : base($AttributeObject)
     {
+        if ($AttributeObject.lastlogon) {
+            $this.LastLogonDate = $AttributeObject.lastlogon
+        }
+        if ($AttributeObject.lastlogontimestamp) {
+            $this.LastLogonTimestampDate = $AttributeObject.lastlogontimestamp
+        }
     }
 }
 

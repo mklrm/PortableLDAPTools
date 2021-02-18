@@ -5,8 +5,10 @@
 # TODO Writing out every single result (or preview of what's going to be happening either really) 
 #      isn't very readable if you're adding say hundreds or thousands of members to a group 
 #      or whatever else. Could:
-#      1. Only display some arbitrary number of entries in the preview and let the user know 
-#         that there's more on the list and the list can be accessed via a New-Menu shortcut
+#      Only display some arbitrary number of entries in the preview and let the user know 
+#      that there's more on the list and the list can be accessed via a New-Menu shortcut...
+#      the problem with doing that being New-Menu doesn't necessarily work under Linux. Should 
+#      maybe start testing that.
 
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
@@ -490,7 +492,9 @@ function Invoke-LDAPQuery
                 #      I'll have to modify Convert-InputObject to accept 
                 #      and only convert single attributes or something. Maybe I should move 
                 #      some of the logic outside of it or something as it is a pretty awful read
-                $_.Attributes[$singleAttribute].GetValues('string')
+                if ($_.Attributes.Keys -contains $singleAttribute) {
+                    $_.Attributes[$singleAttribute].GetValues('string')
+                }
             }
         } else {
             $searchResponse.Entries | ForEach-Object {
@@ -644,13 +648,14 @@ function Convert-SearchResultattributeCollection
                 $values = ''
             } elseif ($attributeName -eq 'member' -and $attributeNameList -contains ('member;range=0-1499')) {
                 continue
-            } elseif ($attributeName -eq 'member' -and 
-                        $attributeNameList -notcontains ('member;range=0-1499')) {
-                $values = ''
+                if ($attributeNameList -contains 'member;range=0-1499') {
+                    continue
+                } else {
+                    $values = ''
+                }
             } elseif ($attributename -eq 'canonicalname') {
-                $values = ConvertTo-CanonicalName `
-                    -DistinguishedName $srac['distinguishedname'].GetValues('string') | 
-                        Select-Object -First 1
+                $stringValues = $srac['distinguishedname'].GetValues('string')
+                $values = ConvertTo-CanonicalName -DistinguishedName $stringValues | Select-Object -First 1
             } elseif ($attributeName -eq 'objectsid') {
                 $values = $srac[$attributeName][0]
                 # NOTE Only Windows is familiar with its SecurityIdentifiers
@@ -680,10 +685,12 @@ function Convert-SearchResultattributeCollection
             $attributeObject | Add-Member -MemberType NoteProperty `
                 -Name $attributeName -Value $values
         }
+
         if (($attributeObject | Get-Member -MemberType NoteProperty).Name -contains 'member') {
             $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
             $attributeObject.member = Invoke-LDAPQuery -Filter $filter -AttributeList 'distinguishedname'
         }
+
         if ($psVersionMajor -ge 5) {
             if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
                 New-Object -TypeName LDAPUser -ArgumentList $attributeObject
@@ -942,6 +949,7 @@ function Search-LDAPAndSetAttributeValue
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
+        $valName = $Value -join ', '
         $oldValue = $ldapObject.$Attribute -join ', '
         if (-not $oldValue) {
             $oldValue = $ldapObject.attributes.$Attribute -join ', '
@@ -951,12 +959,12 @@ function Search-LDAPAndSetAttributeValue
             Write-Log -Message $msg -NoEcho
             Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
-            $msg = "'$objName' '$Attribute' set to '$Value'"
+            $msg = "'$objName' '$Attribute' set to '$valName'"
             Write-Log -Message $msg -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
         } catch {
             $err = $_.ToString()
-            $msg = "Error setting '$objName' '$Attribute' to '$Value': $err"
+            $msg = "Error setting '$objName' '$Attribute' to '$valName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
             $failures++
