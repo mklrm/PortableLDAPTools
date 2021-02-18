@@ -79,13 +79,13 @@ Class LDAPAuthenticatedObject : LDAPObject
     [Int] $codepage
     [Int] $countrycode
     [Boolean] $iscriticalsystemobject
-    [Int64] $LastLogonDate
-    [Int64] $LastLogonTimestampDate
+    [DateTime] $LastLogonDate
+    [DateTime] $LastLogonTimestampDate
     [Int] $logoncount
     [String[]] $MemberOf
     [SecurityIdentifier] $objectsid
     [Int] $primarygroupid
-    [DateTime] $pwdlastset
+    [DateTime] $PwdLastSetDate
     [String] $samaccountname
     [Int] $samaccounttype
     [Int] $useraccountcontrol
@@ -93,10 +93,13 @@ Class LDAPAuthenticatedObject : LDAPObject
     LDAPAuthenticatedObject([PSCustomObject[]] $AttributeObject) : base($AttributeObject)
     {
         if ($AttributeObject.lastlogon) {
-            $this.LastLogonDate = $AttributeObject.lastlogon
+            $this.LastLogonDate = [DateTime]::FromFileTime($AttributeObject.lastlogon)
         }
         if ($AttributeObject.lastlogontimestamp) {
-            $this.LastLogonTimestampDate = $AttributeObject.lastlogontimestamp
+            $this.LastLogonTimestampDate = [DateTime]::FromFileTime($AttributeObject.lastlogontimestamp)
+        }
+        if ($AttributeObject.pwdlastset) {
+            $this.PwdLastSetDate = [DateTime]::FromFileTime($AttributeObject.pwdlastset)
         }
     }
 }

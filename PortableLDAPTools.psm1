@@ -498,7 +498,7 @@ function Invoke-LDAPQuery
             }
         } else {
             $searchResponse.Entries | ForEach-Object {
-                Convert-SearchResultattributeCollection -InputObject $_.Attributes
+                Convert-SearchResultAttributeCollection -InputObject $_.Attributes
             }
         }
         if ($pageResponse.Cookie.Length -eq 0) {
@@ -630,65 +630,60 @@ function ConvertTo-DistinguishedName
     }
 }
 
-function Convert-SearchResultattributeCollection
+function Convert-SearchResultAttributeCollection
 {
     Param(
         [Parameter(Mandatory=$false)][SearchResultAttributeCollection[]]$InputObject
     )
-    foreach ($srac in $InputObject) {
+    foreach ($attributeList in $InputObject) {
         $attributeObject = [PSCustomObject]@{}
-        $attributeNameList = $srac.Keys
-        if ($srac.Keys -contains 'distinguishedname' -and $attributeNameList -notcontains 'canonicalname') {
+        $attributeNameList = $attributeList.Keys
+        if ($attributeList.Keys -contains 'distinguishedname' -and $attributeNameList -notcontains 'canonicalname') {
             $attributeNameList += 'canonicalname'
         } 
+
+        if ($attributeNameList -contains 'member;range=0-1499') {
+            # 'member;range=0-1499' being present means 'member' which will also be present 
+            # and empty will be replaced
+            $attributeNameList = $attributeNameList | Where-Object { $_ -ne 'member' }
+        }
         $attributeNameList = $attributeNameList | Sort-Object
+
         foreach ($attributeName in $attributeNameList) {
             if ($attributeName -eq 'member;range=0-1499') {
+                # This is a group with more than 1500 members which the rest of were not returned. There 
+                # probably is some other way to get the rest but this works for now.
                 $attributeName = 'member'
-                $values = ''
-            } elseif ($attributeName -eq 'member' -and $attributeNameList -contains ('member;range=0-1499')) {
-                continue
-                if ($attributeNameList -contains 'member;range=0-1499') {
-                    continue
-                } else {
-                    $values = ''
-                }
+                $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
+                $values = Invoke-LDAPQuery -Filter $filter -AttributeList 'distinguishedname'
             } elseif ($attributename -eq 'canonicalname') {
-                $stringValues = $srac['distinguishedname'].GetValues('string')
+                $stringValues = $attributeList['distinguishedname'].GetValues('string')
                 $values = ConvertTo-CanonicalName -DistinguishedName $stringValues | Select-Object -First 1
             } elseif ($attributeName -eq 'objectsid') {
-                $values = $srac[$attributeName][0]
+                $values = $attributeList[$attributeName][0]
                 # NOTE Only Windows is familiar with its SecurityIdentifiers
                 if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     if ($values -is [string]) { # NOTE Apparently some objects return 
                                                 # the sid differently, such as the 
                                                 # Active Directory Administrators group
-                        $values = $srac[$attributeName].GetValues('Byte[]')[0]
+                        $values = $attributeList[$attributeName].GetValues('Byte[]')[0]
                     }
-                    $values = New-Object -TypeName System.Security.Principal.SecurityIdentifier `
-                        -ArgumentList $values, 0
+                    $values = New-Object -TypeName SecurityIdentifier -ArgumentList $values, 0
                 }
             } elseif ($attributeName -eq 'objectguid') {
-                $values = $srac[$attributeName][0]
+                $values = $attributeList[$attributeName][0]
                 $values = New-Object -TypeName System.Guid -ArgumentList @(,$values)
             } else {
-                $values = $srac[$attributeName].GetValues('string')
+                $values = $attributeList[$attributeName].GetValues('string')
                 $values = foreach ($value in $values) {
                     if ($value -match '\.0Z$') {
                         $value = [DateTime]::ParseExact($value, 'yyyyMMddHHmmss.fK', $null)
-                    } elseif ($attributeName -eq 'pwdlastset') {
-                        $value = [DateTime]::FromFileTime($value)
                     }
                     $value
                 }
             }
             $attributeObject | Add-Member -MemberType NoteProperty `
                 -Name $attributeName -Value $values
-        }
-
-        if (($attributeObject | Get-Member -MemberType NoteProperty).Name -contains 'member') {
-            $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
-            $attributeObject.member = Invoke-LDAPQuery -Filter $filter -AttributeList 'distinguishedname'
         }
 
         if ($psVersionMajor -ge 5) {
@@ -698,8 +693,6 @@ function Convert-SearchResultattributeCollection
                 New-Object -TypeName LDAPComputer -ArgumentList $attributeObject
             } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
                 New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
-            } else {
-                $attributeObject | Select-Object -Property * -ExcludeProperty 'member;range=0-1499'
             }
         } else {
             $attributeObject
