@@ -4,33 +4,7 @@
     <View>
       <Name>DefaultView</Name>
       <ViewSelectedBy>
-        <TypeName>LDAPUser</TypeName>
-      </ViewSelectedBy>
-      <TableControl>
-        <TableRowEntries>
-          <TableRowEntry>
-            <TableColumnItems>
-              <TableColumnItem>
-                <PropertyName>Name</PropertyName>
-              </TableColumnItem>
-              <TableColumnItem>
-                <PropertyName>sAMAccountName</PropertyName>
-              </TableColumnItem>
-              <TableColumnItem>
-                <PropertyName>CanonicalName</PropertyName>
-              </TableColumnItem>
-              <TableColumnItem>
-                <PropertyName>Description</PropertyName>
-              </TableColumnItem>
-            </TableColumnItems>
-          </TableRowEntry>
-        </TableRowEntries>
-      </TableControl>
-    </View>
-    <View>
-      <Name>DefaultView</Name>
-      <ViewSelectedBy>
-        <TypeName>LDAPComputer</TypeName>
+        <TypeName>LDAPObject</TypeName>
       </ViewSelectedBy>
       <TableControl>
         <TableRowEntries>

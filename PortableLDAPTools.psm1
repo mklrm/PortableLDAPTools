@@ -50,17 +50,15 @@ if (-not (Test-Path -Path $configFile)) {
     New-LDAPConnectionConfiguration
 }
 
-# TODO Add to config file
-# TODO Also I doubt this actually needs to be Global
-$Global:searchLDAPReturnAttributes = 'sAMAccountName,UserPrincipalName,CanonicalName,DistinguishedName'
-$Global:searchLDAPReturnAttributes = $Global:searchLDAPReturnAttributes -split ','
-
 $Script:credential = $null
 $Script:ldapServer = $null
 
 $confirmMessageColor = $Host.PrivateData.FormatAccentColor # NOTE Just pretty much used this for now because 
                                                            #      the default is green.
 $cancelMessageColor = $Host.PrivateData.WarningForegroundColor
+
+$happyMessageColor = 'Green'
+$rageMessageColor = 'Red'
 
 if (-not $confirmMessageColor) {
     $confirmMessageColor = 'Green'
@@ -397,7 +395,6 @@ function Send-LDAP
     )
 
     if ($null -eq $Script:ldapServer) {
-        write-host $Script:userPassword
         if ($Script:userPassword) {
             $Script:ldapServer = Connect-LDAPServer -Password $Script:userPassword
         } else {
@@ -822,10 +819,7 @@ function Search-LDAP
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [ArgumentCompleter({
-            return $Global:searchLDAPReturnAttributes | ForEach-Object { $_ }
-        })]
-        [String[]]$ReturnAttribute
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
     if (-not $SearchTerm) {
@@ -938,7 +932,7 @@ function Search-LDAPAndSetAttributeValue
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
-    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -954,18 +948,18 @@ function Search-LDAPAndSetAttributeValue
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
             $msg = "'$objName' '$Attribute' set to '$valName'"
             Write-Log -Message $msg -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
             $err = $_.ToString()
             $msg = "Error setting '$objName' '$Attribute' to '$valName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
             $failures++
         }
     }
-    $color = 'Green' # TODO Define color somewhere
+    $color = $happyMessageColor
     if ($failure -gt 0) {
-        $color = 'Red' # TODO Define color somewhere
+        $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
@@ -1000,7 +994,7 @@ function Search-LDAPAndAddAttributeValue
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to add attribute '$Attribute' to '$Value' on the following objects:"
-    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.canonicalname
@@ -1016,18 +1010,18 @@ function Search-LDAPAndAddAttributeValue
                 -AttributeName $Attribute -Values $Value -ErrorAction Stop
             $msg = "'$objName' '$Attribute' value '$valName' added"
             Write-Log -Message $msg -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
             $err = $_.ToString()
             $msg = "Error adding '$objName' '$Attribute' value '$valName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
             $failures++
         }
     }
-    $color = 'Green' # TODO Define color somewhere
+    $color = $happyMessageColor
     if ($failure -gt 0) {
-        $color = 'Red' # TODO Define color somewhere
+        $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
@@ -1062,7 +1056,7 @@ function Search-LDAPAndRemoveAttributeValue
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove value '$Value' attribute '$Attribute' the following objects:"
-    Write-Host "Working" -NoNewLine -ForegroundColor Green # TODO Define color somewhere
+    Write-Host "Working" -NoNewLine -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -1077,18 +1071,18 @@ function Search-LDAPAndRemoveAttributeValue
                 -AttributeName $Attribute -Values $Value
             $msg = "'$objName' '$Attribute' '$Value' removed"
             Write-Log -Message $msg -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
             $err = $_.ToString()
             $msg = "Error removing '$objName' '$Attribute' '$Value': $err"
             Write-Log -Message $msg -Level Error -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
             $failures++
         }
     }
-    $color = 'Green' # TODO Define color somewhere
+    $color = $happyMessageColor
     if ($failure -gt 0) {
-        $color = 'Red' # TODO Define color somewhere
+        $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
@@ -1119,7 +1113,7 @@ function Search-LDAPAndClearAttribute
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
-    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -1141,7 +1135,7 @@ function Search-LDAPAndClearAttribute
                 $msg = "'$objname' '$attribute' is already not set"
                 write-log -message $msg -NoEcho
             }
-            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
             $err = $_.ToString()
             $msg = "Error clearing '$objName' '$Attribute': $err"
@@ -1149,9 +1143,9 @@ function Search-LDAPAndClearAttribute
             $failures++
         }
     }
-    $color = 'Green' # TODO Define color somewhere
+    $color = $happyMessageColor
     if ($failure -gt 0) {
-        $color = 'Red' # TODO Define color somewhere
+        $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
@@ -1257,15 +1251,13 @@ function Search-LDAPAndModifyGroupMember
 
     if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
         if (-not $NoConfirmation.IsPresent) {
-            # TODO Rename $addToMap and similar var names in this function as they 
-            #      now pertain to the removal action too
-            $addToMap = Select-LDAPGroupMemberModificationTarget `
+            $modifyMap = Select-LDAPGroupMemberModificationTarget `
                 -LDAPGroupList $ldapGroupList `
                 -LDAPMemberList $ldapMemberList `
                 -Operation $Operation `
                 -Instructions $instructions
         } else {
-            $addToMap = Get-MembershipMap `
+            $modifyMap = Get-MembershipMap `
                 -LDAPGroupList $LDAPGroupList `
                 -LDAPMemberList $LDAPMemberList
         }
@@ -1273,13 +1265,13 @@ function Search-LDAPAndModifyGroupMember
         #      possibility something else modifies it while this 
         #      function is doing the same
         $memberCache = @{}
-        Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+        Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
         $failures = 0
-        foreach ($addtoEntry in $addToMap) {
-            $groupDN = $addtoEntry.Group.DistinguishedName
-            $memberDN = $addtoEntry.Member.DistinguishedName
-            $groupCanName = $addtoEntry.Group.canonicalname
-            $groupMemName = $addToEntry.Member.canonicalname
+        foreach ($modifyEntry in $modifyMap) {
+            $groupDN = $modifyEntry.Group.DistinguishedName
+            $memberDN = $modifyEntry.Member.DistinguishedName
+            $groupCanName = $modifyEntry.Group.canonicalname
+            $groupMemName = $modifyEntry.Member.canonicalname
             if (-not ($memberCache.Keys -contains $groupDN)) {
                 $memberFilter = "(&(memberof=$groupDN))"
                 $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
@@ -1287,7 +1279,7 @@ function Search-LDAPAndModifyGroupMember
             }
             try {
                 if ($Operation -eq 'Add') {
-                    if ($memberCache[$groupDN] -contains $addtoEntry.Member.distinguishedname) {
+                    if ($memberCache[$groupDN] -contains $modifyEntry.Member.distinguishedname) {
                         $msg = "'$groupCanName' already contains '$groupMemName'"
                         Write-Log -Message $msg -NoEcho
                     } else {
@@ -1298,7 +1290,7 @@ function Search-LDAPAndModifyGroupMember
                     }
                 }
                 if ($Operation -eq 'Remove') {
-                    if ($memberCache[$groupDN] -notcontains $addtoEntry.Member.distinguishedname) {
+                    if ($memberCache[$groupDN] -notcontains $modifyEntry.Member.distinguishedname) {
                         $msg = "'$groupCanName' does not contain '$groupMemName'"
                         Write-Log -Message $msg -NoEcho
                     } else {
@@ -1308,7 +1300,7 @@ function Search-LDAPAndModifyGroupMember
                         Write-Log -Message $msg -NoEcho
                     }
                 }
-                Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+                Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
             } catch {
                 $err = $_.ToString()
                 if ($Operation -eq 'Add') {
@@ -1317,15 +1309,15 @@ function Search-LDAPAndModifyGroupMember
                     $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
                 }
                 Write-Log -Message $msg -Level Error -NoEcho
-                Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+                Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
                 $failures++
             }                
         }
-        $color = 'Green' # TODO Define color somewhere
+        $color = $happyMessageColor
         if ($failure -gt 0) {
-            $color = 'Red' # TODO Define color somewhere
+            $color = $rageMessageColor
         }
-        Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $logFileFullName for details." `
             -ForegroundColor $color
     } else {
         if ($Operation -eq 'Add') {
@@ -1631,7 +1623,7 @@ function Search-LDAPAndRemove
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to remove the following object(s):"
-    Write-Host "Working" -NoNewline -ForegroundColor Green # TODO Define color somewhere
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
@@ -1640,18 +1632,18 @@ function Search-LDAPAndRemove
                 -ErrorAction Stop
             $msg = "'$objName' removed"
             Write-Log -Message $msg -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Green # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
             $err = $_.ToString()
             $msg = "Error removing '$objName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
-            Write-Host '.' -NoNewline -ForegroundColor Red # TODO Define color somewhere
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
             $failures++
         }
     }
-    $color = 'Green' # TODO Define color somewhere
+    $color = $happyMessageColor
     if ($failure -gt 0) {
-        $color = 'Red' # TODO Define color somewhere
+        $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
