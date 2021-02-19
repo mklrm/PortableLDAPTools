@@ -13,6 +13,13 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
+# TODO All of the config stuff will have to get a lot more robust, as does making the LDAP 
+#      connection and the error messaging around it. I just spent A LOT of time looking at 
+#      mystifying "The LDAP server is unavailable." errors getting thrown while I had the 
+#      name of an AD domain controller in the config set to a short name instead of an FDQN, 
+#      which I had set in the host computer hosts file (which I was testing on). Meanwhile 
+#      portqry.exe got an answer just fine using the short name.
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -33,27 +40,20 @@ $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 
 $configFile = "$pathMyDocuments\$scriptFileName.xml"
-$config = Import-Clixml -Path $configFile
 
-$activeConfig = $config.ConfigurationList | Where-Object { $_.Name -eq $config.ActiveConfigurationName }
-
-$Script:ldapServerName = $activeConfig.ldapServerName
-$Script:ldapPort = $activeConfig.ldapPort
-$Script:userDomain = $activeConfig.userDomain
-$Script:userName = $activeConfig.userName
-$Script:userPassword = $activeConfig.userPassword
-$Script:authType = $activeConfig.authType
-$Script:searchbase = $activeConfig.searchbase
-$Script:pageSize = $activeConfig.pageSize
+if (-not (Test-Path -Path $configFile)) {
+    Write-Host "No configuration file found at $configFile, let's create one." -ForegroundColor Yellow
+    $config = [PSCustomObject]@{
+        ActiveConfigurationName = $null
+        ConfigurationList = @()
+    }
+    New-LDAPConnectionConfiguration
+}
 
 # TODO Add to config file
 # TODO Also I doubt this actually needs to be Global
 $Global:searchLDAPReturnAttributes = 'sAMAccountName,UserPrincipalName,CanonicalName,DistinguishedName'
 $Global:searchLDAPReturnAttributes = $Global:searchLDAPReturnAttributes -split ','
-
-if (-not $Script:pageSize) {
-    $Script:pageSize = 5000
-}
 
 $Script:credential = $null
 $Script:ldapServer = $null
@@ -104,6 +104,8 @@ function Get-LDAPCredential
                 -ArgumentList $Script:userName, $Password, $Script:userDomain
         }
     }
+
+    throw "Unsupported authentication authentication type $Script:authType, use Basic or Negotiate"
 }
 
 function Connect-LDAPServer
@@ -118,9 +120,13 @@ function Connect-LDAPServer
             $Script:credential = Get-LDAPCredential
         }
     }
-    $ldapServer = New-Object `
-        -TypeName LdapConnection -ArgumentList "$($Script:ldapServerName):$($Script:ldapPort)", 
-            $Script:credential, $Script:authType
+    try {
+        $ldapServer = New-Object -TypeName LdapConnection `
+            -ArgumentList "$($Script:ldapServerName):$($Script:ldapPort)", $Script:credential, $Script:authType
+    } catch {
+        # TODO Write-Host some sort of easy to read instructions instead
+        throw "Error connecting to LDAP server: $($_.ToString())"
+    }
 
     $ldapServer.SessionOptions.SecureSocketLayer = $true
     $ldapServer.SessionOptions.ProtocolVersion = 3
@@ -209,7 +215,7 @@ function New-LDAPConnectionConfiguration
     $msg += "powershell session or until you import the module again."
     Write-Host $msg
     $configUserPassword = Read-Host -Prompt "User password" -AsSecureString
-    $msg = "`nNegotiation is a pretty good default for Active Directory unless you want to go for "
+    $msg = "`nNegotiate is a pretty good default for Active Directory unless you want to go for "
     $msg += "the Kerberos or nothing route."
     Write-Host $msg
     $configAuthentication = Read-Host -Prompt "Authentication (Negotiation is a good default for AD)"
@@ -264,7 +270,7 @@ function New-LDAPConnectionConfiguration
         $key = ([Console]::ReadKey($hideKeysStrokes)).Key
         switch ($key) {
             Y {
-                $config.ActiveConfigurationName = $newConfig.Name
+                $config.ActiveConfigurationName = $newConfig.configName
                 Write-Host "Configuration set as active."
             }
             N {
@@ -391,6 +397,7 @@ function Send-LDAP
     )
 
     if ($null -eq $Script:ldapServer) {
+        write-host $Script:userPassword
         if ($Script:userPassword) {
             $Script:ldapServer = Connect-LDAPServer -Password $Script:userPassword
         } else {
@@ -410,7 +417,7 @@ function Send-LDAP
                 #return $_
                 # ...otherwise something we do not care about...
             }
-         }
+        }
     } catch {
         if ($_.Exception.Message -match '"The supplied credential is invalid."') {
             Write-Host "The supplied credential is invalid."
@@ -460,7 +467,6 @@ function Invoke-LDAPQuery
             $AttributeList += 'distinguishedname'
         }
     }
-
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
@@ -1650,6 +1656,31 @@ function Search-LDAPAndRemove
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
 }
+
+# TODO Now I have to move some stuff down here and keep some up 
+#      above the functions... life is misery!
+
+if (-not (Test-Path -Path $configFile)) {
+    Write-Host "No configuration file found at $configFile, let's create one." -ForegroundColor Yellow
+    $config = [PSCustomObject]@{
+        ActiveConfigurationName = $null
+        ConfigurationList = @()
+    }
+    New-LDAPConnectionConfiguration
+}
+
+$config = Import-Clixml -Path $configFile
+
+$activeConfig = $config.ConfigurationList | Where-Object { $_.Name -eq $config.ActiveConfigurationName }
+
+$Script:ldapServerName = $activeConfig.ldapServerName
+$Script:ldapPort = $activeConfig.ldapPort
+$Script:userDomain = $activeConfig.userDomain
+$Script:userName = $activeConfig.userName
+$Script:userPassword = $activeConfig.userPassword
+$Script:authType = $activeConfig.authType
+$Script:searchbase = $activeConfig.searchbase
+$Script:pageSize = $activeConfig.pageSize
 
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
