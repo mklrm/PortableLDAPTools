@@ -10,12 +10,12 @@ if ($psVersionMajor -le 5) {
 
 Class LDAPObject
 {
-    [String] $canonicalname
+    [String] $CanonicalName
     [String] $cn
     [String] $distinguishedname
     [DateTime[]] $DsCorePropagationData
     [Int] $instancetype
-    [String] $name
+    [String] $Name
     [String] $objectcategory
     [String[]] $objectclass
     [Guid] $objectguid
@@ -84,7 +84,7 @@ Class LDAPGroup : LDAPObject
     [SecurityIdentifier] $objectsid
     [String] $samaccountname
     [Int] $samaccounttype
-    [String] $description
+    [String] $Description
     [String[]] $Member
     [String[]] $MemberOf
     [Int] $admincount
@@ -98,22 +98,23 @@ Class LDAPGroup : LDAPObject
 
 Class LDAPAuthenticatedObject : LDAPObject
 {
-    [Int64] $accountexpires
-    [Int64] $badpasswordtime
-    [Int] $badpwdcount
-    [Int] $codepage
-    [Int] $countrycode
+    [String] $sAMAccountName
+    [String] $Description
+    [String[]] $MemberOf
+    [Int64] $accountexpires # TODO Change to a date
     [Boolean] $iscriticalsystemobject
     [DateTime] $LastLogonDate
     [DateTime] $LastLogonTimestampDate
-    [Int] $logoncount
-    [String[]] $MemberOf
-    [SecurityIdentifier] $objectsid
+    [DateTime] $PasswordLastSet
+    [Int64] $BadPasswordTime # TODO Change to a date
+    [Int] $BadPasswordCount
+    [Int] $LogonCount
+    [SecurityIdentifier] $ObjectSid
     [Int] $primarygroupid
-    [DateTime] $PwdLastSetDate
-    [String] $samaccountname
     [Int] $samaccounttype
     [Int] $useraccountcontrol
+    [Int] $codepage
+    [Int] $countrycode
 
     LDAPAuthenticatedObject([PSCustomObject[]] $AttributeObject) : base($AttributeObject)
     {
@@ -124,24 +125,39 @@ Class LDAPAuthenticatedObject : LDAPObject
             $this.LastLogonTimestampDate = [DateTime]::FromFileTime($AttributeObject.lastlogontimestamp)
         }
         if ($AttributeObject.pwdlastset) {
-            $this.PwdLastSetDate = [DateTime]::FromFileTime($AttributeObject.pwdlastset)
+            $this.PasswordLastSet = [DateTime]::FromFileTime($AttributeObject.pwdlastset)
+        }
+        if ($AttributeObject.badpwdcount) {
+            $this.BadPasswordCount = $AttributeObject.badpwdcount
         }
     }
 }
 
 Class LDAPUser : LDAPAuthenticatedObject
 {
-    [Int] $admincount
-    [String] $description
+    [String] $DisplayName
+    [String] $GivenName
+    [String] $SurName
+    [String] $UserPrincipalName
+    [String] $Mail
+    [String] $Mobile
+    [String] $Title
+    [String] $Company
+    [String] $Department
+    [String] $HomeDirectory
+    [String] $HomeDrive
+    [String] $StreetAddress
 
     LDAPUser([PSCustomObject[]] $AttributeObject) : base($AttributeObject)
     {
+        if ($AttributeObject.sn) {
+            $this.SurName = $AttributeObject.sn
+        }
     }
 }
 
 Class LDAPComputer : LDAPAuthenticatedObject
 {
-    [String] $description
     [String] $displayname
     [String] $dnshostname
     [Int] $localpolicyflags

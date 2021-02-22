@@ -49,7 +49,12 @@ $confirmMessageColor = $Host.PrivateData.FormatAccentColor # NOTE Just pretty mu
 $cancelMessageColor = $Host.PrivateData.WarningForegroundColor
 
 $happyMessageColor = 'Green'
+$warningMessageColor = 'Yellow'
 $rageMessageColor = 'Red'
+
+$attributeMap = @{
+    'SurName' = 'sn'
+}
 
 if (-not $confirmMessageColor) {
     $confirmMessageColor = 'Green'
@@ -575,6 +580,7 @@ function Set-LDAPObject
         [Parameter(Mandatory=$true)][String]$AttributeName,
         [Parameter(Mandatory=$true)]$Values
     )
+
     if ($Operation -eq 'Replace') {
         $modifyRequest = New-Object -TypeName ModifyRequest `
             -ArgumentList $DistinguishedName, $Operation, $AttributeName, $Values
@@ -943,6 +949,13 @@ function Search-LDAPAndSetAttributeValue
         Write-Host "Could not find objects to modify."
         return
     }
+
+    if ($attributeMap[$Attribute]) {
+        Write-Host "You specified $Attribute as attribute, will modify $($attributeMap[$Attribute])" `
+            -ForegroundColor $warningMessageColor
+        $Attribute = $attributeMap[$Attribute]
+    }
+
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
