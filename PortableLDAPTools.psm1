@@ -41,15 +41,6 @@ $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 
 $configFile = "$pathMyDocuments\$scriptFileName.xml"
 
-if (-not (Test-Path -Path $configFile)) {
-    Write-Host "No configuration file found at $configFile, let's create one." -ForegroundColor Yellow
-    $config = [PSCustomObject]@{
-        ActiveConfigurationName = $null
-        ConfigurationList = @()
-    }
-    New-LDAPConnectionConfiguration
-}
-
 $Script:credential = $null
 $Script:ldapServer = $null
 
@@ -77,58 +68,80 @@ if ($config.logFileFullName) {
 
 function Get-LDAPCredential
 {
-    Param(
-        [Parameter(Mandatory=$true)][SecureString]$Password
-    )
-    if (-not $Password) {
+    if (-not $Script:userPassword) {
         Write-Host "Enter password for user $($Script:userDomain)\$($Script:userName):"
-        $Password = Read-Host -AsSecureString
+        $Script:userPassword = Read-Host -AsSecureString
     }
 
     if ($Script:authType -eq 'Basic') {
-        return New-Object `
+        $Script:credential = New-Object `
             -TypeName System.Net.NetworkCredential `
-            -ArgumentList "$($Script:userDomain)\$($Script:userName)", $Password
+            -ArgumentList "$($Script:userDomain)\$($Script:userName)", $Script:userPassword
+        return
     }
 
     if ($Script:authType -eq 'Negotiate') {
         if ($PSVersionTable.OS -match 'Linux') {
-            return New-Object `
+            $Script:credential = New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $($Script:userDomain)\$($Script:userName), $Password
+                -ArgumentList $($Script:userDomain)\$($Script:userName), $Script:userPassword
+            return
         } else {
-            return  New-Object `
+            $Script:credential = New-Object `
                 -TypeName System.Net.NetworkCredential `
-                -ArgumentList $Script:userName, $Password, $Script:userDomain
+                -ArgumentList $Script:userName, $Script:userPassword, $Script:userDomain
+            return
         }
     }
 
     throw "Unsupported authentication authentication type $Script:authType, use Basic or Negotiate"
 }
 
+function Initialize-Configuration
+{
+    if (-not (Test-Path -Path $configFile)) {
+        Write-Host "No configuration file found at $configFile, let's create one." -ForegroundColor Yellow
+        $config = [PSCustomObject]@{
+            ActiveConfigurationName = $null
+            ConfigurationList = @()
+        }
+        New-LDAPConnectionConfiguration
+    }
+
+    $config = Import-Clixml -Path $configFile
+
+    $activeConfig = $config.ConfigurationList | `
+        Where-Object { $_.configName -eq $config.ActiveConfigurationName }
+
+    $Script:ldapServerName = $activeConfig.ldapServerName
+    $Script:ldapPort = $activeConfig.ldapPort
+    $Script:userDomain = $activeConfig.userDomain
+    $Script:userName = $activeConfig.userName
+    $Script:userPassword = $activeConfig.userPassword
+    $Script:authType = $activeConfig.authType
+    $Script:searchbase = $activeConfig.searchbase
+    $Script:pageSize = $activeConfig.pageSize
+}
+
 function Connect-LDAPServer
 {
-    Param(
-        [Parameter(Mandatory=$false)][SecureString]$Password
-    )
+    if (-not $Script:ldapServerName) {
+        Initialize-Configuration
+    }
+
     if ($null -eq $Script:credential) {
-        if ($Password) {
-            $Script:credential = Get-LDAPCredential -Password $Password
-        } else {
-            $Script:credential = Get-LDAPCredential
-        }
+        Get-LDAPCredential
     }
     try {
-        $ldapServer = New-Object -TypeName LdapConnection `
+        $Script:ldapServer = New-Object -TypeName LdapConnection `
             -ArgumentList "$($Script:ldapServerName):$($Script:ldapPort)", $Script:credential, $Script:authType
     } catch {
         # TODO Write-Host some sort of easy to read instructions instead
         throw "Error connecting to LDAP server: $($_.ToString())"
     }
 
-    $ldapServer.SessionOptions.SecureSocketLayer = $true
-    $ldapServer.SessionOptions.ProtocolVersion = 3
-    return $ldapServer
+    $Script:ldapServer.SessionOptions.SecureSocketLayer = $true
+    $Script:ldapServer.SessionOptions.ProtocolVersion = 3
 }
 
 function Write-Log
@@ -216,7 +229,7 @@ function New-LDAPConnectionConfiguration
     $msg = "`nNegotiate is a pretty good default for Active Directory unless you want to go for "
     $msg += "the Kerberos or nothing route."
     Write-Host $msg
-    $configAuthentication = Read-Host -Prompt "Authentication (Negotiation is a good default for AD)"
+    $configAuthentication = Read-Host -Prompt "Authentication (Negotiate is a good default for AD)"
     $msg =  "`nPage size determines how many results the LDAP server is asked to return at a "
     $msg +=  "time which has performance implications of the LDAP server. This script uses 5000 as the "
     $msg += "default if you enter none. This shouldn't choke pretty much any server and they tend to "
@@ -395,11 +408,7 @@ function Send-LDAP
     )
 
     if ($null -eq $Script:ldapServer) {
-        if ($Script:userPassword) {
-            $Script:ldapServer = Connect-LDAPServer -Password $Script:userPassword
-        } else {
-            $Script:ldapServer = Connect-LDAPServer
-        }
+        Connect-LDAPServer
     }
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
@@ -468,6 +477,10 @@ function Invoke-LDAPQuery
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
     $scope = [System.DirectoryServices.SearchScope]::Subtree
+
+    if (-not $Script:searchbase) {
+        Initialize-Configuration
+    }
 
     $searchRequest = New-Object -TypeName SearchRequest `
         -ArgumentList $Script:searchbase, $Filter, $scope, $AttributeList
@@ -1648,31 +1661,6 @@ function Search-LDAPAndRemove
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
         -ForegroundColor $color
 }
-
-# TODO Now I have to move some stuff down here and keep some up 
-#      above the functions... life is misery!
-
-if (-not (Test-Path -Path $configFile)) {
-    Write-Host "No configuration file found at $configFile, let's create one." -ForegroundColor Yellow
-    $config = [PSCustomObject]@{
-        ActiveConfigurationName = $null
-        ConfigurationList = @()
-    }
-    New-LDAPConnectionConfiguration
-}
-
-$config = Import-Clixml -Path $configFile
-
-$activeConfig = $config.ConfigurationList | Where-Object { $_.Name -eq $config.ActiveConfigurationName }
-
-$Script:ldapServerName = $activeConfig.ldapServerName
-$Script:ldapPort = $activeConfig.ldapPort
-$Script:userDomain = $activeConfig.userDomain
-$Script:userName = $activeConfig.userName
-$Script:userPassword = $activeConfig.userPassword
-$Script:authType = $activeConfig.authType
-$Script:searchbase = $activeConfig.searchbase
-$Script:pageSize = $activeConfig.pageSize
 
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
