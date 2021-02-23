@@ -13,13 +13,6 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
-# TODO All of the config stuff will have to get a lot more robust, as does making the LDAP 
-#      connection and the error messaging around it. I just spent A LOT of time looking at 
-#      mystifying "The LDAP server is unavailable." errors getting thrown while I had the 
-#      name of an AD domain controller in the config set to a short name instead of an FDQN, 
-#      which I had set in the host computer hosts file (which I was testing on). Meanwhile 
-#      portqry.exe got an answer just fine using the short name.
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -50,6 +43,7 @@ $cancelMessageColor = $Host.PrivateData.WarningForegroundColor
 
 $happyMessageColor = 'Green'
 $warningMessageColor = 'Yellow'
+$attentionMessageColor = 'Yellow'
 $rageMessageColor = 'Red'
 
 $attributeMap = @{
@@ -117,6 +111,11 @@ function Initialize-Configuration
 
     $activeConfig = $config.ConfigurationList | `
         Where-Object { $_.configName -eq $config.ActiveConfigurationName }
+    
+    if ($activeConfig.Count -gt 1) {
+        $configName = $activeConfig[0].configName
+        throw "Configuration file $configFile contains more than one configuration named '$configName'"
+    }
 
     $Script:ldapServerName = $activeConfig.ldapServerName
     $Script:ldapPort = $activeConfig.ldapPort
@@ -255,6 +254,12 @@ function New-LDAPConnectionConfiguration
     }
 
     Write-Host "`nPlease review and edit any values you're not happy with." -ForegroundColor Yellow
+    if ($config.ConfigurationList.configName -contains $configName) {
+        Write-Host "$configFile already contains a configuration called $configName." `
+            -ForegroundColor $rageMessageColor
+        Write-Host "Change the configuration name if you do not want to overwrite the old one." `
+            -ForegroundColor $rageMessageColor
+    }
     $newConfig = Edit-LDAPConnectionConfiguration -Configuration $newConfig
 
     if ($newConfig) {
@@ -296,7 +301,25 @@ function New-LDAPConnectionConfiguration
                 Write-Host "I'll take that as a [N]o."
             }
         }
-        $config | Export-Clixml -Path $configFile
+        if ($config.ConfigurationList.configName -contains $configName) {
+            Write-Host "Configuration $configName already exists, overwrite [Y/N]?" `
+                -ForegroundColor $attentionMessageColor
+            $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+            switch ($key) {
+                Y {
+                    $config | Export-Clixml -Path $configFile -Force
+                    Write-Host "Configuration saved."
+                }
+                N {
+                    Write-Host "You picked [N]o."
+                }
+                Default {
+                    Write-Host "I'll take that as a [N]o."
+                }
+            }
+        } else {
+            $config | Export-Clixml -Path $configFile -Force
+        }
     }
 }
 
