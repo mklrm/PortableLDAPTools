@@ -22,6 +22,7 @@ using namespace System.Security.Principal
 $objectClassUser = 'organizationalPerson,person,top,user'
 $objectClassComputer = 'computer,organizationalPerson,person,top,user'
 $objectClassGroup = 'group,top'
+$objectClassOrganizationalUnit = 'organizationalUnit,top'
 
 $psVersionMajor = $PSVersionTable.PSVersion.Major
 
@@ -47,6 +48,7 @@ $happyMessageColor = 'Green'
 $warningMessageColor = 'Yellow'
 $attentionMessageColor = 'Yellow'
 $rageMessageColor = 'Red'
+# TODO Add inquisitiveMessageColor
 
 $attributeMap = @{
     'SurName' = 'sn'
@@ -446,6 +448,8 @@ function Send-LDAP
                 # NOTE Be silent for now
             } elseif ($_ -is [DeleteResponse]) {
                 # NOTE Be silent for now
+            } elseif ($_ -is [ModifyDNResponse]) {
+                # NOTE Be silent for now
             } elseif ($_ -isnot [ModifyResponse]) {
                 # NOTE It's likely returning an object from an ldap directory...
                 $_
@@ -636,6 +640,21 @@ function Remove-LDAPObject
     Send-LDAP -Request $deleteRequest
 }
 
+function Move-LDAPObject
+{
+    Param(
+        [Parameter(Mandatory=$true)][String]$DistinguishedName,
+        [Parameter(Mandatory=$true)][String]$TargetDistinguishedName
+    )
+    $modifyDNRequest = New-Object -TypeName ModifyDNRequest
+    $modifyDNRequest.DeleteOldRdn = $true
+    $modifyDNRequest.DistinguishedName = $DistinguishedName
+    $newName = $DistinguishedName -split ',' | Select-Object -First 1
+    $modifyDNRequest.NewName = $newName
+    $modifyDNRequest.NewParentDistinguishedName = $TargetDistinguishedName
+    Send-LDAP -Request $modifyDNRequest
+}
+
 function ConvertTo-CanonicalName
 {
     Param(
@@ -740,6 +759,10 @@ function Convert-SearchResultAttributeCollection
                 New-Object -TypeName LDAPComputer -ArgumentList $attributeObject
             } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
                 New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
+            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassOrganizationalUnit) {
+                New-Object -TypeName LDAPObject -ArgumentList $attributeObject
+            } else {
+                $attributeObject
             }
         } else {
             $attributeObject
@@ -988,8 +1011,7 @@ function Select-LDAPTargetObject
     )
     $apply = $false
     while ($apply -eq $false) {
-        Write-Host $Title -ForegroundColor Yellow
-        $i = 0 
+        Write-Host "$Title`n" -ForegroundColor Yellow
         foreach ($ldapObject in $LDAPObjectList) {
             Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
         }
@@ -998,7 +1020,7 @@ function Select-LDAPTargetObject
         } else {
             $footer ='[A]pply, Esc to cancel'
         }
-        Write-Host $footer -ForegroundColor Yellow
+        Write-Host "`n$footer" -ForegroundColor Yellow
         $answer = Select-LDAPObject -ObjectList $LDAPObjectList
         if ($answer -eq 'Apply') {
             $apply = $true
@@ -1765,6 +1787,88 @@ function Search-LDAPAndRemove
         -ForegroundColor $color
 }
 
+function Search-LDAPAndMove
+{
+    param(
+        [Parameter(Mandatory=$false)][string[]]$SearchTerm
+    )
+
+    # TODO Add a TargetPath parameter that accepts either a canonicalname or distinguishedname to bypass 
+    #      the menu.
+
+    if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and moves them to a selected organizational unit."
+        $usage = "LDAPMove SearchTerm(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Terms to find objects to move"
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
+        return
+    }
+
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -lt 1) {
+        Write-Host "Could not find objects to move."
+        return
+    }
+
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
+        -Title "About to move the following object(s):"
+    
+    if (-not $TargetPath) {
+        $TargetPath = New-Menu -InputObject (Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))') `
+            -DisplayProperty CanonicalName -Mode Default -Title `
+            'Use enter to select an organizational unit to move objects to, arrow keys and pgup/pgdn to move.'
+    }
+
+    Write-Host "`n`tMoving selected objects to $($TargetPath.CanonicalName)`n" -ForegroundColor $warningMessageColor
+    Write-Host "[A]pply or [C]ancel?" -ForegroundColor $happyMessageColor
+
+    $hideKeysStrokes = $true
+    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    switch ($key) {
+        A {
+            Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
+        }
+        C {
+            Write-Host "Exiting." -ForegroundColor $warningMessageColor
+            return
+        }
+        Default {
+            Write-Host "I'll take that as a [C]ancel." -ForegroundColor $warningMessageColor
+            return
+        }
+    }
+
+    $failures = 0
+    
+    $targetPathName = $TargetPath.CanonicalName
+
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        try {
+            Move-LDAPObject -DistinguishedName $ldapObject.DistinguishedName `
+                -TargetDistinguishedName $TargetPath.DistinguishedName -ErrorAction Stop
+            $msg = "'$objName' moved to '$targetPathName'"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error moving '$objName' to '$targetPathName': $err"
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
+            $failures++
+        }
+    }
+    
+    $color = $happyMessageColor
+    if ($failure -gt 0) {
+        $color = $rageMessageColor
+    
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
+}
+
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
 Set-Alias -Name LDAPSet -Value Search-LDAPAndSetAttributeValue
@@ -1778,6 +1882,7 @@ Set-Alias -Name LDAPRemObj -Value Search-LDAPAndRemove
 Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
+Set-Alias -Name LDAPMove -Value Search-LDAPAndMove
 
 Export-ModuleMember -Function `
         ConvertTo-CanonicalName,
@@ -1801,7 +1906,8 @@ Export-ModuleMember -Function `
         Edit-LDAPConnectionConfiguration,
         Remove-LDAPConnectionConfiguration,
         Get-LDAPGroupMember,
-        Search-LDAPGroupAndgetMembersRecursive `
+        Search-LDAPGroupAndgetMembersRecursive,
+        Search-LDAPAndMove `
     -Alias LDAPGet,
         LDAPGetBy,
         LDAPSet,
@@ -1814,4 +1920,5 @@ Export-ModuleMember -Function `
         LDAPRemObj,
         LDAPSetPass,
         LDAPGetLogList,
-        LDAPGetMemberRecursive
+        LDAPGetMemberRecursive,
+        LDAPMove

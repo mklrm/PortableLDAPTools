@@ -88,6 +88,16 @@ Removes values from single and multi-value attributes.
 
 Clears all values from single and multi-value attributes.
 
+### LDAPMove
+
+You could for example list objects in an organizational unit and the command will ask you to pick which ones to move and where:
+
+    LDAPMove contoso.com/organizationalunit1/*
+
+or just move Jane Doe:
+
+    LDAPMove 'Jane Done'
+
 ### LDAPAddMember
 
 Perhaps one of the more useful commands, used to add members to groups:
