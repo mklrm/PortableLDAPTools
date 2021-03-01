@@ -780,7 +780,15 @@ function Get-LDAPFuzzyQueryFilter
         if ($ObjectClass) {
             $filter += ')'
         }
-        $filters += $filter
+
+        if (-not $Script:searchbase) {
+            Initialize-Configuration
+        }
+
+        $filters += [PSCustomObject]@{
+            Filter = $filter
+            SearchBase = $Script:searchbase
+        }
     }
     return $filters
 }
@@ -919,9 +927,23 @@ function Search-LDAP
         return
     }
 
+    $canonicalNamePattern = '^([\w]{1,}\.{1}[\w]{1,}){1,}/'
+    # TODO Add $distinguishedNamePattern
     $result = @()
-    foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm)) {
-        $result += Invoke-LDAPQuery -Filter $filter -AttributeList $ReturnAttribute
+    if ($SearchTerm.Count -eq 1) {
+        if ($SearchTerm -match $canonicalNamePattern -and $SearchTerm -match '\*') {
+            $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute CanonicalName `
+                -AttributeValue $SearchTerm
+        }
+    }
+
+    if (-not $filters) {
+        $filters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm
+    }
+
+    foreach ($filter in $filters) {
+        $result += Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase `
+            -AttributeList $ReturnAttribute
     }
     $result
 }

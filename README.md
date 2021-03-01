@@ -56,6 +56,10 @@ LDAPGet will try to find you both no matter which order you write the names in. 
 
 Mix and match the search terms as you please.
 
+You can list the users in an organizational unit by doing:
+
+    LDAPGet contoso.com/organizational/unit/*
+
 ### LDAPGetBy
 
 Finds attributes by the value in a specific attribute. Can list all child objects in an organizational unit by passing something like:
