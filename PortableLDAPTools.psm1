@@ -13,6 +13,8 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
+# TODO change $Script:searchbase and the name in config to DefaultSearchBase or something
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -477,7 +479,8 @@ function Invoke-LDAPQuery
 {
     Param(
         [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))',
-        [Parameter(Mandatory=$false)][String[]]$AttributeList
+        [Parameter(Mandatory=$false)][String[]]$AttributeList,
+        [Parameter(Mandatory=$false)][String]$SearchBase
     )
 
     $singleAttribute = $false
@@ -510,8 +513,12 @@ function Invoke-LDAPQuery
         Initialize-Configuration
     }
 
+    if (-not $SearchBase) {
+        $SearchBase = $Script:searchbase
+    }
+
     $searchRequest = New-Object -TypeName SearchRequest `
-        -ArgumentList $Script:searchbase, $Filter, $scope, $AttributeList
+        -ArgumentList $SearchBase, $Filter, $scope, $AttributeList
 
     $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $Script:pageSize
     $searchRequest.Controls.Add($pageRequest) | Out-Null
@@ -789,17 +796,48 @@ function Get-LDAPAttributeValueQueryFilter
     if ($ObjectClass) {
         $filter += "(&(objectclass=$ObjectClass)"
     }
-    $filter += "(|"
-    foreach ($sAttr in $SearchAttribute) {
-        foreach ($vAttr in $AttributeValue) {
-            $filter += "($sAttr=$vAttr)"
+
+    if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'distinguishedname' -and
+        $AttributeValue.Count -eq 1 -and $AttributeValue -match '\*') {
+        
+        # TODO Add support for multiple DistinguishedName SearchAttributes with wildcards. This will 
+        #      require making returning a list of filters instead of just one.
+        
+        $leaf = $AttributeValue -split ',' | Select-Object -First 1
+        if ($leaf -notmatch '=') {
+            $search = "CN=$leaf" # TODO could add other attributes like OU too
+        } else {
+            $search = $leaf
+        }
+        $searchBase = $AttributeValue[0] -replace ("^$leaf," -replace '\*','\*')
+
+        $filter = "(&($search)"
+
+    } else {
+        $filter += "(|"
+        foreach ($sAttr in $SearchAttribute) {
+            foreach ($vAttr in $AttributeValue) {
+                $filter += "($sAttr=$vAttr)"
+            }
         }
     }
+
     $filter += ')'
     if ($ObjectClass) {
         $filter += ')'
     }
-    return $filter
+
+    if (-not $searchBase) {
+        if (-not $Script:searchbase) {
+            Initialize-Configuration
+        }
+        $searchBase = $Script:searchbase
+    }
+
+    return [PSCustomObject]@{
+        Filter = $filter
+        SearchBase = $searchBase
+    }
 }
 
 function Select-LDAPObject
@@ -886,7 +924,7 @@ function Search-LDAPByAttributeValue
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchAttribute,
         [Parameter(Mandatory=$false)][String[]]$AttributeValue = "*",
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute = '*'
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
 
     if (-not $SearchAttribute) {
@@ -895,7 +933,7 @@ function Search-LDAPByAttributeValue
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchAttribute'] = "Attributes in which to look for value"
         $parameters['AttributeValue'] = "Which values to look for in attributes. '*' which is the default, means any value other than null."
-        $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' is again the default."
+        $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' expands all."
         Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
@@ -904,7 +942,7 @@ function Search-LDAPByAttributeValue
     $filters = Get-LDAPAttributeValueQueryFilter `
         -SearchAttribute $SearchAttribute -AttributeValue $AttributeValue
     foreach ($filter in $filters) {
-        $result += Invoke-LDAPQuery -Filter $filter
+        $result += Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
     }
     if (-not $ReturnAttribute) {
         $result | Sort-Object -Property canonicalname
@@ -1713,7 +1751,9 @@ Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
 
 Export-ModuleMember -Function `
-        Invoke-LDAPQuery,        
+        Invoke-LDAPQuery,
+        Get-LDAPFuzzyQueryFilter,
+        Get-LDAPAttributeValueQueryFilter,
         Search-LDAP, 
         Search-LDAPByAttributeValue, 
         Search-LDAPAndSetAttributeValue, 

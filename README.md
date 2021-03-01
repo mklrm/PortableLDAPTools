@@ -58,7 +58,9 @@ Mix and match the searchterms as you please.
 
 ### LDAPGetBy
 
-Finds attributes by the value in a specific attribute.
+Finds attributes by the value in a specific attribute. Can list all child objects in an organization unit by:
+
+    LDAPGetBy distinguishedname '*,CN=Users,DC=contoso,DC=com'
 
 ### LDAPSet
 
