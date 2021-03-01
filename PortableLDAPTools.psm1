@@ -666,18 +666,19 @@ function ConvertTo-DistinguishedName
     param(
         [parameter(mandatory=$false)][String[]]$CanonicalName,
         [parameter(mandatory=$false)]
-        [validateset('OU', 'CN')]
-        [String]$LeafNamingAttribute = 'OU'
+        [validateset('OU', 'CN', 'None')]
+        [String]$LeafAttribute = 'CN'
     )
-    # cn=test user 3,ou=users,ou=org,dc=satan,dc=local
-    # satan.local/org/users/test user 3
     foreach ($cn in $CanonicalName) {
         $domain, $path = $cn -split '/'
         $domain = $domain -split '\.'
-        [Array]::Reverse($domain)
         $domain = ",DC=$($domain -join ',DC=')"
         [Array]::Reverse($path)
-        $path = "$LeafNamingAttribute=$($path -join ',OU=')"
+        if ($LeafAttribute -eq 'None') {
+            $path = $path -join ',OU='
+        } else {
+            $path = "$LeafAttribute=$($path -join ',OU=')"
+        }
         "$path$domain"
     }
 }
@@ -797,7 +798,14 @@ function Get-LDAPAttributeValueQueryFilter
         $filter += "(&(objectclass=$ObjectClass)"
     }
 
-    if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'distinguishedname' -and
+    if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'CanonicalName' -and
+        $AttributeValue.Count -eq 1) {
+        
+        $SearchAttribute = 'DistinguishedName'
+        $AttributeValue = ConvertTo-DistinguishedName -CanonicalName $AttributeValue -LeafAttribute None
+    }
+
+    if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'DistinguishedName' -and
         $AttributeValue.Count -eq 1 -and $AttributeValue -match '\*') {
         
         # TODO Add support for multiple DistinguishedName SearchAttributes with wildcards. This will 
@@ -812,7 +820,6 @@ function Get-LDAPAttributeValueQueryFilter
         $searchBase = $AttributeValue[0] -replace ("^$leaf," -replace '\*','\*')
 
         $filter = "(&($search)"
-
     } else {
         $filter += "(|"
         foreach ($sAttr in $SearchAttribute) {
@@ -1751,6 +1758,8 @@ Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
 
 Export-ModuleMember -Function `
+        ConvertTo-CanonicalName,
+        ConvertTo-DistinguishedName,
         Invoke-LDAPQuery,
         Get-LDAPFuzzyQueryFilter,
         Get-LDAPAttributeValueQueryFilter,

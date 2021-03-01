@@ -60,7 +60,11 @@ Mix and match the search terms as you please.
 
 Finds attributes by the value in a specific attribute. Can list all child objects in an organizational unit by passing something like:
 
-    LDAPGetBy distinguishedname '*,CN=Users,DC=contoso,DC=com'
+    LDAPGetBy CanonicalName contoso.com/Users/*
+
+or
+
+    LDAPGetBy DistinguishedName '*,CN=Users,DC=contoso,DC=com'
 
 ### LDAPSet
 
