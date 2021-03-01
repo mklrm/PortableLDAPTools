@@ -1,6 +1,6 @@
 # Portable LDAP Tools module for Powershell
 
-# NOTE THAT THIS MODULE IS UNFINISHED, NOT EVERYTHING IS WORKING PROPERLY AND MIGHT BREAK ETC.
+# NOTE THAT THIS MODULE IS UNFINISHED, NOT EVERYTHING IS WORKING PROPERLY, THINGS MIGHT BREAK ETC.
 
 A collection of commands to help achieve basic tasks like finding and modifying objects on a directory service via the Lightweight Directory Access Protocol. I've only tested against Active Directory and things like which attributes are shown by default are very much designed with Active Directory in mind.
 
@@ -20,13 +20,13 @@ Automatically logs changes to a file in My Documents or home dir.
 
 Automatically asks for things like server name and port, username, password (you're allowed to skip this) and saves them to a config file.
 
-Allows multiple connection to be configured in its single configuration file saved to My Documents or home dir.
+Allows multiple connection configurations to be stored in the .xml file saved to My Documents or home dir.
 
 ## Usage
 
 As this is supposed to be something you use to quickly and easily get things done on the command line I'll be using aliases in the examples.
 
-When a command that modifies anything is run a list of the changes that are about to be made will be shown and the user asked to confirm, cancel or pick from an interactive menu which changes to make and which to discard. 
+When a command that modifies anything is run, a list of the changes that are about to be made will be displayed and the user is asked to confirm, cancel or modify the list of changes about to be committed. 
 
 I won't be listing all of the commands, you can get the aliases by running:
 
@@ -54,11 +54,11 @@ LDAPGet will try to find you both no matter which order you write the names in. 
 
     LDAPGet '*Doe*'
 
-Mix and match the searchterms as you please.
+Mix and match the search terms as you please.
 
 ### LDAPGetBy
 
-Finds attributes by the value in a specific attribute. Can list all child objects in an organization unit by:
+Finds attributes by the value in a specific attribute. Can list all child objects in an organizational unit by passing something like:
 
     LDAPGetBy distinguishedname '*,CN=Users,DC=contoso,DC=com'
 
@@ -78,7 +78,7 @@ Removes values from single and multi-value attributes.
 
 ### LDAPClr
 
-Clears all values from single multi-value attributes.
+Clears all values from single and multi-value attributes.
 
 ### LDAPAddMember
 
@@ -88,11 +88,11 @@ Perhaps one of the more useful commands, used to add members to groups:
 
 ### LDAPRemMember
 
-Works similarly to $LDAPAddMember but you can also do...
+Works similarly to LDAPAddMember but you can also do...
 
     LDAPRemMember 'Group A' *
 
-...to get a list of all members in a group and choose to remove them all from it or pick and choose.
+...to get a list of all members in a group and choose to remove all of them from it or pick and choose which ones to remove.
 
 ### LDAPRemObj
 
