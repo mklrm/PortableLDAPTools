@@ -13,8 +13,6 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
-# TODO change $Script:searchbase and the name in config to DefaultSearchBase or something
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -485,7 +483,8 @@ function Invoke-LDAPQuery
     Param(
         [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))',
         [Parameter(Mandatory=$false)][String[]]$AttributeList,
-        [Parameter(Mandatory=$false)][String]$SearchBase
+        [Parameter(Mandatory=$false)][String]$SearchBase,
+        [Parameter(Mandatory=$false)][Int]$SizeLimit
     )
 
     $singleAttribute = $false
@@ -524,6 +523,10 @@ function Invoke-LDAPQuery
 
     $searchRequest = New-Object -TypeName SearchRequest `
         -ArgumentList $SearchBase, $Filter, $scope, $AttributeList
+    
+    if ($SizeLimit) {
+        $searchRequest.SizeLimit = $SizeLimit
+    }
 
     $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $Script:pageSize
     $searchRequest.Controls.Add($pageRequest) | Out-Null
@@ -660,7 +663,6 @@ function ConvertTo-CanonicalName
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$DistinguishedName
-        
     )
     foreach ($dn in $DistinguishedName) {
         $tmp = $dn -split ','
@@ -668,7 +670,11 @@ function ConvertTo-CanonicalName
         $ouList = ($tmp | Where-Object { $_ -match '^ou=' }) -replace '^ou='
         $dcList = ($tmp | Where-Object { $_ -match '^dc=' }) -replace '^dc='
         $CanonicalName = "$($dcList -join '.')/"
-        $CanonicalName += $ouList[($ouList.Count + 1)..0] -join '/'
+        if ($ouList -is [String]) {
+            $CanonicalName += $ouList
+        } else {
+            $CanonicalName += $ouList[($ouList.Count + 1)..0] -join '/'
+        }
         if ($cnList.Count -eq 1) {
             $CanonicalName += "/$($cnList)"
         } elseif ($cnList.Count -gt 1) {
@@ -753,6 +759,14 @@ function Convert-SearchResultAttributeCollection
                 -Name $attributeName -Value $values
         }
 
+        # Change arrays containing only a single item to just that single value
+        $attributeObject | Get-Member -MemberType NoteProperty | 
+            Select-Object -ExpandProperty Name | ForEach-Object {
+                if ($attributeObject.$_ -is [Array] -and $attributeObject.$_.Count -lt 2) {
+                    $attributeObject.$_ = $attributeObject.$_[0]
+                }
+            }
+
         if ($psVersionMajor -ge 5) {
             if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
                 New-Object -TypeName LDAPUser -ArgumentList $attributeObject
@@ -833,12 +847,15 @@ function Get-LDAPAttributeValueQueryFilter
     if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'CanonicalName' -and
         $AttributeValue.Count -eq 1) {
         
+        # This is a contoso.com/path/to/something/* search
         $SearchAttribute = 'DistinguishedName'
         $AttributeValue = ConvertTo-DistinguishedName -CanonicalName $AttributeValue -LeafAttribute None
     }
 
     if ($SearchAttribute.Count -eq 1 -and $SearchAttribute -eq 'DistinguishedName' -and
         $AttributeValue.Count -eq 1 -and $AttributeValue -match '\*') {
+        
+        # This is a *,OU=something,OU=to,OU=path,DC=contoso,DC=com type search
         
         # TODO Add support for multiple DistinguishedName SearchAttributes with wildcards. This will 
         #      require making returning a list of filters instead of just one.
@@ -850,6 +867,38 @@ function Get-LDAPAttributeValueQueryFilter
             $search = $leaf
         }
         $searchBase = $AttributeValue[0] -replace ("^$leaf," -replace '\*','\*')
+        # All parent nodes in canonical name path such as contoso.com/computers/* when converted to 
+        # distinguished name default to OU=computers. Computers for example is a container which in 
+        # a distinguished name path is represented by common name, CN=computers. First test if an 
+        # OU exists and if not try CN instead.
+        try {
+            # NOTE There's probably a better way than this to test if the searchbase exists but 
+            #      at least this shouldn't be too bad performance wise.
+            Invoke-LDAPQuery -Filter "(&(name=*))" -AttributeList cn `
+                -SearchBase $searchBase -SizeLimit 1 -ErrorAction Stop | Out-Null
+        } catch {
+            if ($_.Tostring() -match 'The object does not exist') {
+                $searchBase = $searchBase -replace '^OU','CN'
+                try {
+                    Invoke-LDAPQuery -Filter "(&(name=*))" -AttributeList cn `
+                        -SearchBase $searchBase -SizeLimit 1 -ErrorAction Stop | Out-Null
+                } catch {
+                    if ($_.Tostring() -match 'The object does not exist') {
+                        Write-Host "Could not find organizational unit or container" `
+                            -ForegroundColor $rageMessageColor
+                        return
+                    } elseif ($_.ToString() -notmatch 'The size limit was exceeded') {
+                        # 'The size limit was exceeded' is acceptable as  
+                        # objects were returned. This is not so throw it.
+                        throw $_
+                    }
+                }
+            } elseif ($_.ToString() -notmatch 'The size limit was exceeded') {
+                # 'The size limit was exceeded' is acceptable as  
+                # objects were returned. This is not so throw it.
+                throw $_
+            }
+        }
 
         $filter = "(&($search)"
     } else {

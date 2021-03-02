@@ -144,6 +144,7 @@ Class LDAPUser : LDAPAuthenticatedObject
     [String] $Title
     [String] $Company
     [String] $Department
+    [String] $Manager
     [String] $HomeDirectory
     [String] $HomeDrive
     [String] $StreetAddress
