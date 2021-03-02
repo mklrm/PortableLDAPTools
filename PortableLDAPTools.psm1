@@ -48,7 +48,7 @@ $happyMessageColor = 'Green'
 $warningMessageColor = 'Yellow'
 $attentionMessageColor = 'Yellow'
 $rageMessageColor = 'Red'
-# TODO Add inquisitiveMessageColor
+# TODO Add inquiringMessageColor
 
 $attributeMap = @{
     'SurName' = 'sn'
@@ -1339,14 +1339,14 @@ function Select-LDAPGroupMemberModificationTarget
     $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
     $apply = $false
     while ($apply -eq $false) {
-        Write-Host $OperationDescription -ForegroundColor Yellow
+        Write-Host "$OperationDescription`n" -ForegroundColor Yellow
         foreach ($entry in $membershipMap) {
             $member = "'$($entry.Member.canonicalname)'"
             $member = $member.PadRight($topLength + 2) # The 2 is the ' surrounding $member
             $group = "'$($entry.Group.canonicalname)'"
             Write-Host "    $member $direction $group" -ForegroundColor Green
         }
-        Write-Host $Instructions -ForegroundColor Yellow
+        Write-Host "`n$Instructions" -ForegroundColor Yellow
         $answer = Select-LDAPObject -ObjectList $membershipMap -DisplayProperty Name
         if ($answer -eq 'Apply') {
             $apply = $true
@@ -1378,7 +1378,7 @@ function Search-LDAPAndModifyGroupMember
 
     $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
     $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        Invoke-LDAPQuery -Filter $filter
+        Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
     }
 
     if ($Operation -eq 'Remove' -and $SearchTermMember -eq '*') {
@@ -1614,7 +1614,8 @@ function Search-LDAPGroupAndGetMembersRecursive
     $attributeList = 'distinguishedname', $DisplayPropertyName
     $groupList = @()
     foreach ($filter in (Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass group)) {
-        $groupList += Invoke-LDAPQuery -Filter $filter -AttributeList $attributeList
+        $groupList += Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase `
+            -AttributeList $attributeList
     }
     
     foreach ($group in $groupList) {
@@ -1629,7 +1630,7 @@ function Get-LDAPGroupMember
     )
     $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
     $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        Invoke-LDAPQuery -Filter $filter
+        Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
     }
     foreach ($ldapGroup in $ldapGroupList) {
         foreach ($memberDN in $ldapGroup.member) {
