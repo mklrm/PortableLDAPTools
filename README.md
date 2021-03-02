@@ -18,7 +18,7 @@ Automatically logs changes to a file in My Documents or home dir.
 
 ## Setup
 
-Automatically asks for things like server name and port, username, password (you're allowed to skip this) and saves them to a config file.
+Automatically asks for things like server name and port, username, password (as a secure string so it should fairly well protected but you're allowed to skip this) and saves them to a config file.
 
 Allows multiple connection configurations to be stored in the .xml file saved to My Documents or home dir.
 
