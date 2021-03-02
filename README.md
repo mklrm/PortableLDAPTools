@@ -34,6 +34,10 @@ I won't be listing all of the commands, you can get the aliases by running:
 
 You can run each command without passing parameters to get help.
 
+## Menu controls
+
+Use *up and down arrow*, *page up and down* to move around, an *alphanumerical key* press jumps to the next item starting with that character and you can use *slash (/)* to search.
+
 ### LDAPGet
 
 Will print the following without passing parameters:

@@ -46,8 +46,9 @@ $cancelMessageColor = $Host.PrivateData.WarningForegroundColor
 
 $happyMessageColor = 'Green'
 $warningMessageColor = 'Yellow'
-$attentionMessageColor = 'Yellow'
+$attentionMessageColor = 'White'
 $rageMessageColor = 'Red'
+$disappointedMessageColor = 'DarkMagenta'
 # TODO Add inquiringMessageColor
 
 $attributeMap = @{
@@ -900,7 +901,7 @@ function Select-LDAPObject
                 if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     $selected = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to select, arrow keys and pgup/pgdn to move.', 
-                        'Enter confirms.'
+                        'Enter confirms. Use slash (/) to search.'
                     return $selected
                 }
             }
@@ -910,7 +911,7 @@ function Select-LDAPObject
                 if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
                     $deselectList = New-Menu -InputObject $ObjectList -DisplayProperty $DisplayProperty `
                         -Mode Multiselect -Title 'Use space to deselect, arrow keys and pgup/pgdn to move.', 
-                        'Enter confirms.'
+                        'Enter confirms. Use slash (/) to search.'
                     if ($deselectList) {
                     $selectList = Compare-Object -ReferenceObject $ObjectList.Name `
                         -DifferenceObject $deselectList.Name -IncludeEqual | 
@@ -1816,12 +1817,20 @@ function Search-LDAPAndMove
         -Title "About to move the following object(s):"
     
     if (-not $TargetPath) {
-        $TargetPath = New-Menu -InputObject (Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))') `
+        $TargetPath = New-Menu -InputObject `
+            ((Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))') | Sort-Object CanonicalName) `
             -DisplayProperty CanonicalName -Mode Default -Title `
-            'Use enter to select an organizational unit to move objects to, arrow keys and pgup/pgdn to move.'
+            'Use enter to select an organizational unit to move objects ',
+            'to it, arrow keys and pgup/pgdn to move. Use slash (/) to search.'
+        if (-not $TargetPath) {
+            Write-Host "You didn't pick an organizational unit to move selected objects to." `
+                -ForegroundColor $disappointedMessageColor
+            return
+        }
     }
 
-    Write-Host "`n`tMoving selected objects to $($TargetPath.CanonicalName)`n" -ForegroundColor $warningMessageColor
+    Write-Host "`n`tMoving selected objects to $($TargetPath.CanonicalName)`n" `
+        -ForegroundColor $warningMessageColor
     Write-Host "[A]pply or [C]ancel?" -ForegroundColor $happyMessageColor
 
     $hideKeysStrokes = $true
