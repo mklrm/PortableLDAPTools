@@ -1018,7 +1018,11 @@ function Search-LDAP
         $result += Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase `
             -AttributeList $ReturnAttribute
     }
-    $result
+    if (-not $ReturnAttribute) {
+        $result | Sort-Object -Property CanonicalName
+    } else {
+        $result | Select-Object $ReturnAttribute
+    }
 }
 
 function Search-LDAPByAttributeValue
@@ -1047,7 +1051,7 @@ function Search-LDAPByAttributeValue
         $result += Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
     }
     if (-not $ReturnAttribute) {
-        $result | Sort-Object -Property canonicalname
+        $result | Sort-Object -Property CanonicalName
     } else {
         $result | Select-Object $ReturnAttribute
     }
