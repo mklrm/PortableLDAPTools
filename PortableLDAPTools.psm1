@@ -22,6 +22,65 @@ $objectClassComputer = 'computer,organizationalPerson,person,top,user'
 $objectClassGroup = 'group,top'
 $objectClassOrganizationalUnit = 'organizationalUnit,top'
 
+# NOTE The below enumeration is on loan from:
+# http://www.digipine.com/index.php?mid=windowsmfc&document_srl=208
+
+# Usage, for example:
+# [AdsUserFlags]530
+# returns:
+# AccountDisabled, AccountLockedOut, NormalAccount
+[Flags()]
+Enum AdsUserFlags
+{
+    Script = 1 # 0x1
+    AccountDisabled = 2 # 0x2
+    HomeDirectoryRequired = 8 # 0x8
+    AccountLockedOut = 16 # 0x10
+    PasswordNotRequired = 32 # 0x20
+    PasswordCannotChange = 64 # 0x40
+    EncryptedTextPasswordAllowed = 128 # 0x80
+    TempDuplicateAccount = 256 # 0x100
+    NormalAccount = 512 # 0x200
+    InterDomainTrustAccount = 2048 # 0x800
+    WorkstationTrustAccount = 4096 # 0x1000
+    ServerTrustAccount = 8192 # 0x2000
+    PasswordDoesNotExpire = 65536 # 0x10000
+    MnsLogonAccount = 131072 # 0x20000
+    SmartCardRequired = 262144 # 0x40000
+    TrustedForDelegation = 524288 # 0x80000
+    AccountNotDelegated = 1048576 # 0x100000
+    UseDesKeyOnly = 2097152 # 0x200000
+    DontRequirePreauth = 4194304 # 0x400000
+    PasswordExpired = 8388608 # 0x800000
+    TrustedToAuthenticateForDelegation = 16777216 # 0x1000000
+    NoAuthDataRequired = 33554432 # 0x2000000
+}
+
+$adsUserFlagsMap = @{
+    Script = 1
+    AccountDisabled = 2
+    HomeDirectoryRequired = 8
+    AccountLockedOut = 16
+    PasswordNotRequired = 32
+    PasswordCannotChange = 64
+    EncryptedTextPasswordAllowed = 128
+    TempDuplicateAccount = 256
+    NormalAccount = 512
+    InterDomainTrustAccount = 2048
+    WorkstationTrustAccount = 4096
+    ServerTrustAccount = 8192
+    PasswordDoesNotExpire = 65536
+    MnsLogonAccount = 131072
+    SmartCardRequired = 262144
+    TrustedForDelegation = 524288
+    AccountNotDelegated = 1048576
+    UseDesKeyOnly = 2097152
+    DontRequirePreauth = 4194304
+    PasswordExpired = 8388608
+    TrustedToAuthenticateForDelegation = 16777216
+    NoAuthDataRequired = 33554432
+}
+
 $psVersionMajor = $PSVersionTable.PSVersion.Major
 
 if ($psVersionMajor -le 5) {
@@ -709,6 +768,26 @@ function ConvertTo-DistinguishedName
     }
 }
 
+function ConvertFrom-UserAccountControlInteger
+{
+    Param(
+        [Parameter(Mandatory=$true)][Int]$UserAccountControlInteger
+    )
+    return ([AdsUserFlags] $UserAccountControlInteger) -split ', '
+}
+
+function ConvertTo-UserAccountControlInteger
+{
+    Param(
+        [Parameter(Mandatory=$true)][String[]]$UserAccountControlFlag
+    )
+    $userAccountControlInteger = 0
+    foreach ($uACFlag in $UserAccountControlFlag) {
+        $userAccountControlInteger += $adsUserFlagsMap[$uACFlag]
+    }
+    return $userAccountControlInteger
+}
+
 function Convert-SearchResultAttributeCollection
 {
     Param(
@@ -1142,6 +1221,7 @@ function Search-LDAPAndSetAttributeValue
             Write-Log -Message $msg -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
+            throw $_
             $err = $_.ToString()
             $msg = "Error setting '$objName' '$Attribute' to '$valName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
@@ -1932,6 +2012,120 @@ function Search-LDAPAndMove
         -ForegroundColor $color
 }
 
+function Search-LDAPAndDisable
+{
+    param(
+        [Parameter(Mandatory=$false)][string[]]$SearchTerm
+    )
+    if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and disables them."
+        $usage = "LDAPDisable SearchTerm(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Terms to find objects to disable"
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
+        return
+    }
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -lt 1) {
+        Write-Host "Could not find objects to disable."
+        return
+    }
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
+        -Title "About to disable the following object(s):"
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
+    $failures = 0
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        $userAccountControlFlags = ConvertFrom-UserAccountControlInteger `
+            -UserAccountControlInteger $ldapObject.UserAccountControl
+        $disabled = $userAccountControlFlags -contains 'AccountDisabled'
+        if ($disabled) {
+            $msg = "'$objName' is already disabled"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $attentionMessageColor
+            continue
+        } else {
+            $userAccountControlNewValue = $ldapObject.UserAccountControl + $adsUserFlagsMap['AccountDisabled']
+        }
+        try {
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                -AttributeName 'UserAccountControl' -Values "$userAccountControlNewValue"
+            $msg = "'$objName' disabled"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error disabling '$objName': $err"
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
+            $failures++
+        }
+    }
+    $color = $happyMessageColor
+    if ($failure -gt 0) {
+        $color = $rageMessageColor
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
+}
+
+function Search-LDAPAndEnable
+{
+    param(
+        [Parameter(Mandatory=$false)][string[]]$SearchTerm
+    )
+    if (-not $SearchTerm) {
+        $description = "Looks for objects by search terms and enables them."
+        $usage = "LDAPEnable SearchTerm(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTerm'] = "Terms to find objects to enable"
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
+        return
+    }
+    $ldapObjectList = Search-LDAP -SearchTerm $SearchTerm
+    if ($ldapObjectList.Count -lt 1) {
+        Write-Host "Could not find objects to enable."
+        return
+    }
+    $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
+        -Title "About to enable the following object(s):"
+    Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
+    $failures = 0
+    foreach ($ldapObject in $ldapObjectList) {
+        $objName = $ldapObject.CanonicalName
+        $userAccountControlFlags = ConvertFrom-UserAccountControlInteger `
+            -UserAccountControlInteger $ldapObject.UserAccountControl
+        $disabled = $userAccountControlFlags -contains 'AccountDisabled'
+        if (-not $disabled) {
+            $msg = "'$objName' is already enabled"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $attentionMessageColor
+            continue
+        } else {
+            $userAccountControlNewValue = $ldapObject.UserAccountControl - $adsUserFlagsMap['AccountDisabled']
+        }
+        try {
+            Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
+                -AttributeName 'UserAccountControl' -Values "$userAccountControlNewValue"
+            $msg = "'$objName' enabled"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
+        } catch {
+            $err = $_.ToString()
+            $msg = "Error enabled '$objName': $err"
+            Write-Log -Message $msg -Level Error -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
+            $failures++
+        }
+    }
+    $color = $happyMessageColor
+    if ($failure -gt 0) {
+        $color = $rageMessageColor
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
+}
+
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
 Set-Alias -Name LDAPSet -Value Search-LDAPAndSetAttributeValue
@@ -1946,10 +2140,15 @@ Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
 Set-Alias -Name LDAPMove -Value Search-LDAPAndMove
+Set-Alias -Name LDAPDisable -Value Search-LDAPAndDisable
+Set-Alias -Name LDAPEnable -Value Search-LDAPAndEnable
 
 Export-ModuleMember -Function `
+        Set-LDAPObject,
         ConvertTo-CanonicalName,
         ConvertTo-DistinguishedName,
+        ConvertFrom-UserAccountControlInteger,
+        ConvertTo-UserAccountControlInteger,
         Invoke-LDAPQuery,
         Get-LDAPFuzzyQueryFilter,
         Get-LDAPAttributeValueQueryFilter,
@@ -1970,7 +2169,9 @@ Export-ModuleMember -Function `
         Remove-LDAPConnectionConfiguration,
         Get-LDAPGroupMember,
         Search-LDAPGroupAndgetMembersRecursive,
-        Search-LDAPAndMove `
+        Search-LDAPAndMove,
+        Search-LDAPAndDisable,
+        Search-LDAPAndEnable `
     -Alias LDAPGet,
         LDAPGetBy,
         LDAPSet,
@@ -1984,4 +2185,6 @@ Export-ModuleMember -Function `
         LDAPSetPass,
         LDAPGetLogList,
         LDAPGetMemberRecursive,
-        LDAPMove
+        LDAPMove,
+        LDAPDisable,
+        LDAPEnable

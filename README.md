@@ -120,6 +120,14 @@ Works similarly to LDAPAddMember but you can also do...
 
     LDAPRemObj 'John Doe', 'Doe Jane'
 
+### LDAPDisable
+
+    LDAPDisable 'Doe Jane', 'John Doe'
+
+### LDAPEnable 
+
+    LDAPEnable 'John Doe', 'Doe Jane'
+
 ### The rest
 
 The rest of the commands already present are more or less waiting to grow into something worth using.
