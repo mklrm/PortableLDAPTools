@@ -9,7 +9,7 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-# RootModule = ''
+RootModule = 'PortableLDAPTools.psm1'
 
 # Version number of this module.
 ModuleVersion = '0.0.1'
@@ -30,7 +30,7 @@ Author = 'Lauri Mikkola'
 Copyright = '(c) Lauri Mikkola. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'Something akin to ADUC on the command line'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -51,7 +51,8 @@ Copyright = '(c) Lauri Mikkola. All rights reserved.'
 # ProcessorArchitecture = ''
 
 # Modules that must be imported into the global environment prior to importing this module
-# RequiredModules = @()
+# RequiredModules = @() # TODO New-Menu... after completely rebuilding it and adding some sort 
+                        # of horrible Linux support to it
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
@@ -69,7 +70,29 @@ FormatsToProcess = @('.\formats\LDAPObject.ps1xml')
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @()
+FunctionsToExport = @(
+    'Search-LDAP',
+    'Search-LDAP', 
+    'Search-LDAPByAttributeValue', 
+    'Search-LDAPAndSetAttributeValue', 
+    'Search-LDAPAndAddAttributeValue', 
+    'Search-LDAPAndRemoveAttributeValue',
+    'Search-LDAPAndClearAttribute',
+    'Search-LDAPAndAddGroupMember',
+    'Search-LDAPAndRemoveGroupMember',
+    'Add-LDAPObject',
+    'Search-LDAPAndRemove',
+    'Search-LDAPAndResetPassword',
+    'Get-LDAPLogFileList',
+    'New-LDAPConnectionConfiguration',
+    'Edit-LDAPConnectionConfiguration',
+    'Remove-LDAPConnectionConfiguration',
+    'Get-LDAPGroupMember',
+    'Search-LDAPGroupAndgetMembersRecursive',
+    'Search-LDAPAndMove',
+    'Search-LDAPAndDisable',
+    'Search-LDAPAndEnable'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -78,7 +101,24 @@ CmdletsToExport = @()
 VariablesToExport = '*'
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = @()
+AliasesToExport = @(
+    'LDAPGet', 
+    'LDAPGetBy', 
+    'LDAPSet', 
+    'LDAPAdd', 
+    'LDAPRem', 
+    'LDAPClr', 
+    'LDAPAddMember', 
+    'LDAPRemMeber', 
+    'LDAPAddObj', 
+    'LDAPRemObj', 
+    'LDAPSetPass', 
+    'LDAPGetLogList', 
+    'LDAPGetMemberRecursive', 
+    'LDAPMove', 
+    'LDAPDisable', 
+    'LDAPEnable'
+)
 
 # DSC resources to export from this module
 # DscResourcesToExport = @()
@@ -95,7 +135,7 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = @('LDAP','User friendly')
 
         # A URL to the license for this module.
         # LicenseUri = ''
@@ -129,4 +169,3 @@ PrivateData = @{
 # DefaultCommandPrefix = ''
 
 }
-

@@ -2,14 +2,6 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
-# TODO Writing out every single result (or preview of what's going to be happening either really) 
-#      isn't very readable if you're adding say hundreds or thousands of members to a group 
-#      or whatever else. Could:
-#      Only display some arbitrary number of entries in the preview and let the user know 
-#      that there's more on the list and the list can be accessed via a New-Menu shortcut...
-#      the problem with doing that being New-Menu doesn't necessarily work under Linux. Should 
-#      maybe start testing that.
-
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
@@ -2142,49 +2134,3 @@ Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecur
 Set-Alias -Name LDAPMove -Value Search-LDAPAndMove
 Set-Alias -Name LDAPDisable -Value Search-LDAPAndDisable
 Set-Alias -Name LDAPEnable -Value Search-LDAPAndEnable
-
-Export-ModuleMember -Function `
-        Set-LDAPObject,
-        ConvertTo-CanonicalName,
-        ConvertTo-DistinguishedName,
-        ConvertFrom-UserAccountControlInteger,
-        ConvertTo-UserAccountControlInteger,
-        Invoke-LDAPQuery,
-        Get-LDAPFuzzyQueryFilter,
-        Get-LDAPAttributeValueQueryFilter,
-        Search-LDAP, 
-        Search-LDAPByAttributeValue, 
-        Search-LDAPAndSetAttributeValue, 
-        Search-LDAPAndAddAttributeValue, 
-        Search-LDAPAndRemoveAttributeValue,
-        Search-LDAPAndClearAttribute,
-        Search-LDAPAndAddGroupMember,
-        Search-LDAPAndRemoveGroupMember,
-        Add-LDAPObject,
-        Search-LDAPAndRemove,
-        Search-LDAPAndResetPassword,
-        Get-LDAPLogFileList,
-        New-LDAPConnectionConfiguration,
-        Edit-LDAPConnectionConfiguration,
-        Remove-LDAPConnectionConfiguration,
-        Get-LDAPGroupMember,
-        Search-LDAPGroupAndgetMembersRecursive,
-        Search-LDAPAndMove,
-        Search-LDAPAndDisable,
-        Search-LDAPAndEnable `
-    -Alias LDAPGet,
-        LDAPGetBy,
-        LDAPSet,
-        LDAPAdd,
-        LDAPRem,
-        LDAPClr,
-        LDAPAddMember,
-        LDAPRemMember,
-        LDAPAddObj,
-        LDAPRemObj,
-        LDAPSetPass,
-        LDAPGetLogList,
-        LDAPGetMemberRecursive,
-        LDAPMove,
-        LDAPDisable,
-        LDAPEnable
