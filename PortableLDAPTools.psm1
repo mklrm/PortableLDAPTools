@@ -5,11 +5,6 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
-# TODO Move single attribute conversion to Convert-SearchResultAttributeCollection because 
-#      'LDAPGet <Group> member' seems to return... something... that manifests itself as empty lines 
-#      and the logic related to the attribute in Convert-SearchResultAttributeCollection might 
-#      help with that. This will likely also prevent other similar problems from occurring later.
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -563,7 +558,12 @@ function Invoke-LDAPQuery
             $AttributeList += 'cn'
         }
         # Canonicalname is constructed from distinguishedname so going to be needing that
-        if ($AttributeList -contains 'canonicalname' -and  $AttributeList -notcontains 'distinguishedname') {
+        if ($AttributeList -contains 'canonicalname' -and $AttributeList -notcontains 'distinguishedname') {
+            $AttributeList += 'distinguishedname'
+        }
+        # If there's more than 1500 members in a group DistinguishedName will be required 
+        # to get all members
+        if ($AttributeList -contains 'member' -and $AttributeList -notcontains 'distinguishedname') {
             $AttributeList += 'distinguishedname'
         }
     }
@@ -604,12 +604,11 @@ function Invoke-LDAPQuery
         if ($singleAttribute) {
             # Convert the single attribute
             $searchResponse.Entries | ForEach-Object {
-                # TODO This absolutely will not produce the right result for all attributes, 
-                #      I'll have to modify Convert-InputObject to accept 
-                #      and only convert single attributes or something. Maybe I should move 
-                #      some of the logic outside of it or something as it is a pretty awful read
                 if ($_.Attributes.Keys -contains $singleAttribute) {
-                    $_.Attributes[$singleAttribute].GetValues('string')
+                    Convert-SearchResultAttributeCollection -InputObject $_.Attributes `
+                        -ReturnAttribute $singleAttribute
+                } else {
+                    return
                 }
             }
         } else {
@@ -785,21 +784,57 @@ function ConvertTo-UserAccountControlInteger
 function Convert-SearchResultAttributeCollection
 {
     Param(
-        [Parameter(Mandatory=$false)][SearchResultAttributeCollection[]]$InputObject
+        [Parameter(Mandatory=$false)][SearchResultAttributeCollection[]]$InputObject,
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
     )
     foreach ($attributeList in $InputObject) {
-        $attributeObject = [PSCustomObject]@{}
-        $attributeNameList = $attributeList.Keys
-        if ($attributeList.Keys -contains 'distinguishedname' -and $attributeNameList -notcontains 'canonicalname') {
-            $attributeNameList += 'canonicalname'
-        } 
 
-        if ($attributeNameList -contains 'member;range=0-1499') {
-            # 'member;range=0-1499' being present means 'member' which will also be present 
-            # and empty will be replaced
-            $attributeNameList = $attributeNameList | Where-Object { $_ -ne 'member' }
+        $attributeObject = [PSCustomObject]@{}
+        
+        if ($ReturnAttribute.Count -eq 1) {
+            if ($attributeList.Keys -contains $ReturnAttribute) {
+                if ($ReturnAttribute[0] -eq 'member' -and $AttributeList.Keys -contains 'member;range=0-1499') {
+                    # Since 'member;range=0-1499' is on the attribute list 'member' will be empty. 
+                    # Pick 'member;range=0-1499' as the single attribute instead of 'member' and it 
+                    # will be used as a signal later to build 'member' with all members included. 
+                    # DistinguishedName is required for getting the group members.
+                    $attributeNameList = 'DistinguishedName', 'member;range=0-1499'
+                } else {
+                    $attributeNameList = $ReturnAttribute
+                }
+            } else {
+                # The requested return attribute is not on the attribute list
+                return
+            }
+        } else {
+            # If a list of specific attributes to return were passed only process 
+            # attributes on that list and drop the rest
+            if ($ReturnAttribute) {
+                $attributeNameList = foreach ($attributeName in $attributeList.Keys) {
+                    if ($ReturnAttribute -contains $attributeName) {
+                        $attributeName
+                    }
+                }
+            }
+            $attributeNameList = $attributeList.Keys
+            if ($attributeList.Keys -contains 'distinguishedname' -and 
+                $attributeNameList -notcontains 'canonicalname') {
+                
+                $attributeNameList += 'canonicalname'
+            }
+
+            if ($attributeNameList -contains 'member;range=0-1499') {
+                # 'member;range=0-1499' being present means 'member' will also be present 
+                # but empty despite there being at least 1500 members. 'member is dropped 
+                # here and then added back later with all members.
+                $attributeNameList = $attributeNameList | Where-Object { $_ -ne 'member' }
+            }
+            $attributeNameList = $attributeNameList | Sort-Object
         }
-        $attributeNameList = $attributeNameList | Sort-Object
+
+        if ($attributeNameList.Count -eq 0) {
+            return
+        }
 
         foreach ($attributeName in $attributeNameList) {
             if ($attributeName -eq 'member;range=0-1499') {
@@ -808,6 +843,7 @@ function Convert-SearchResultAttributeCollection
                 $attributeName = 'member'
                 $filter = "(&(memberof=$($attributeObject.DistinguishedName)))"
                 $values = Invoke-LDAPQuery -Filter $filter -AttributeList 'distinguishedname'
+                $values = $values | Select-Object -ExpandProperty DistinguishedName
             } elseif ($attributename -eq 'canonicalname') {
                 $stringValues = $attributeList['distinguishedname'].GetValues('string')
                 $values = ConvertTo-CanonicalName -DistinguishedName $stringValues | Select-Object -First 1
@@ -828,8 +864,7 @@ function Convert-SearchResultAttributeCollection
             } else {
                 $values = $attributeList[$attributeName].GetValues('string')
             }
-            $attributeObject | Add-Member -MemberType NoteProperty `
-                -Name $attributeName -Value $values
+            $attributeObject | Add-Member -MemberType NoteProperty -Name $attributeName -Value $values
         }
 
         # Change arrays containing only a single item to just that single value
@@ -1086,6 +1121,8 @@ function Search-LDAP
     }
     if (-not $ReturnAttribute) {
         $result | Sort-Object -Property CanonicalName
+    } elseif ($ReturnAttribute.Count -eq 1) {
+        $result | Select-Object -ExpandProperty $ReturnAttribute[0]
     } else {
         $result | Select-Object $ReturnAttribute
     }
@@ -1103,8 +1140,8 @@ function Search-LDAPByAttributeValue
         $description = "Looks for objects that have matching values in attributes."
         $usage = "LDAPGetBy SearchAttribute(s) AttributeValue(s) ReturnAttribute(s)"
         [OrderedDictionary]$parameters = @{}
-        $parameters['SearchAttribute'] = "Attributes in which to look for value"
-        $parameters['AttributeValue'] = "Which values to look for in attributes. '*' which is the default, means any value other than null."
+        $parameters['SearchAttribute'] = "Attributes in which to look for a value"
+        $parameters['AttributeValue'] = "Which value(s) to look for in attributes. '*' which is the default, means any value other than null."
         $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' expands all."
         Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
@@ -1118,6 +1155,8 @@ function Search-LDAPByAttributeValue
     }
     if (-not $ReturnAttribute) {
         $result | Sort-Object -Property CanonicalName
+    } elseif ($ReturnAttribute.Count -eq 1) {
+        $result | Select-Object -ExpandProperty $ReturnAttribute[0]
     } else {
         $result | Select-Object $ReturnAttribute
     }
