@@ -1,0 +1,209 @@
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+  <Obj RefId="0">
+    <TN RefId="0">
+      <T>System.DirectoryServices.Protocols.SearchResponse</T>
+      <T>System.DirectoryServices.Protocols.DirectoryResponse</T>
+      <T>System.DirectoryServices.Protocols.DirectoryOperation</T>
+      <T>System.Object</T>
+    </TN>
+    <ToString>System.DirectoryServices.Protocols.SearchResponse</ToString>
+    <Props>
+      <Obj N="References" RefId="1">
+        <TN RefId="1">
+          <T>System.DirectoryServices.Protocols.SearchResultReferenceCollection</T>
+          <T>System.Collections.ReadOnlyCollectionBase</T>
+          <T>System.Object</T>
+        </TN>
+        <IE>
+          <Obj RefId="2">
+            <TN RefId="2">
+              <T>System.DirectoryServices.Protocols.SearchResultReference</T>
+              <T>System.Object</T>
+            </TN>
+            <ToString>System.DirectoryServices.Protocols.SearchResultReference</ToString>
+            <Props>
+              <Obj N="Reference" RefId="3">
+                <TN RefId="3">
+                  <T>System.Uri[]</T>
+                  <T>System.Array</T>
+                  <T>System.Object</T>
+                </TN>
+                <LST>
+                  <URI>ldaps://forestdnszones.satan.local/DC=ForestDnsZones,DC=satan,DC=local</URI>
+                </LST>
+              </Obj>
+              <Obj N="Controls" RefId="4">
+                <TN RefId="4">
+                  <T>System.DirectoryServices.Protocols.DirectoryControl[]</T>
+                  <T>System.Array</T>
+                  <T>System.Object</T>
+                </TN>
+                <LST />
+              </Obj>
+            </Props>
+          </Obj>
+          <Obj RefId="5">
+            <TNRef RefId="2" />
+            <ToString>System.DirectoryServices.Protocols.SearchResultReference</ToString>
+            <Props>
+              <Obj N="Reference" RefId="6">
+                <TNRef RefId="3" />
+                <LST>
+                  <URI>ldaps://domaindnszones.satan.local/DC=DomainDnsZones,DC=satan,DC=local</URI>
+                </LST>
+              </Obj>
+              <Ref N="Controls" RefId="4" />
+            </Props>
+          </Obj>
+          <Obj RefId="7">
+            <TNRef RefId="2" />
+            <ToString>System.DirectoryServices.Protocols.SearchResultReference</ToString>
+            <Props>
+              <Obj N="Reference" RefId="8">
+                <TNRef RefId="3" />
+                <LST>
+                  <URI>ldaps://satan.local/CN=Configuration,DC=satan,DC=local</URI>
+                </LST>
+              </Obj>
+              <Ref N="Controls" RefId="4" />
+            </Props>
+          </Obj>
+        </IE>
+        <Props>
+          <I32 N="Count">3</I32>
+          <Obj N="SyncRoot" RefId="9">
+            <TN RefId="5">
+              <T>System.Collections.ArrayList</T>
+              <T>System.Object</T>
+            </TN>
+            <LST>
+              <Ref RefId="2" />
+              <Ref RefId="5" />
+              <Ref RefId="7" />
+            </LST>
+          </Obj>
+          <B N="IsSynchronized">false</B>
+        </Props>
+      </Obj>
+      <Obj N="Entries" RefId="10">
+        <TN RefId="6">
+          <T>System.DirectoryServices.Protocols.SearchResultEntryCollection</T>
+          <T>System.Collections.ReadOnlyCollectionBase</T>
+          <T>System.Object</T>
+        </TN>
+        <IE>
+          <Obj RefId="11">
+            <TN RefId="7">
+              <T>System.DirectoryServices.Protocols.SearchResultEntry</T>
+              <T>System.Object</T>
+            </TN>
+            <ToString>System.DirectoryServices.Protocols.SearchResultEntry</ToString>
+            <Props>
+              <S N="DistinguishedName">CN=group1,OU=groups,OU=org,DC=satan,DC=local</S>
+              <Obj N="Attributes" RefId="12">
+                <TN RefId="8">
+                  <T>System.DirectoryServices.Protocols.SearchResultAttributeCollection</T>
+                  <T>System.Collections.DictionaryBase</T>
+                  <T>System.Object</T>
+                </TN>
+                <DCT>
+                  <En>
+                    <S N="Key">member</S>
+                    <Obj N="Value" RefId="13">
+                      <TN RefId="9">
+                        <T>System.DirectoryServices.Protocols.DirectoryAttribute</T>
+                        <T>System.Collections.CollectionBase</T>
+                        <T>System.Object</T>
+                      </TN>
+                      <LST>
+                        <BA>Q049Z3JvdXAyLE9VPWdyb3VwcyxPVT1vcmcsREM9c2F0YW4sREM9bG9jYWw=</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzOSxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzOCxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzNyxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzNixPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzNSxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzNCxPVT1EaXJpZ2libGVzLE9VPXVzZXJzLE9VPW9yZyxEQz1zYXRhbixEQz1sb2NhbA==</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzMyxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzMixPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzMSxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzMCxPVT1ncm91cHMsT1U9b3JnLERDPXNhdGFuLERDPWxvY2Fs</BA>
+                        <BA>Q049dGVzdCB1c2VyIFkgMTIzLE9VPWdyb3VwcyxPVT1vcmcsREM9c2F0YW4sREM9bG9jYWw=</BA>
+                      </LST>
+                    </Obj>
+                  </En>
+                  <En>
+                    <S N="Key">objectclass</S>
+                    <Obj N="Value" RefId="14">
+                      <TNRef RefId="9" />
+                      <LST>
+                        <BA>dG9w</BA>
+                        <BA>Z3JvdXA=</BA>
+                      </LST>
+                    </Obj>
+                  </En>
+                  <En>
+                    <S N="Key">cn</S>
+                    <Obj N="Value" RefId="15">
+                      <TNRef RefId="9" />
+                      <LST>
+                        <BA>Z3JvdXAx</BA>
+                      </LST>
+                    </Obj>
+                  </En>
+                </DCT>
+              </Obj>
+              <Ref N="Controls" RefId="4" />
+            </Props>
+          </Obj>
+        </IE>
+        <Props>
+          <I32 N="Count">1</I32>
+          <Obj N="SyncRoot" RefId="16">
+            <TNRef RefId="5" />
+            <LST>
+              <Ref RefId="11" />
+            </LST>
+          </Obj>
+          <B N="IsSynchronized">false</B>
+        </Props>
+      </Obj>
+      <Nil N="RequestId" />
+      <S N="MatchedDN"></S>
+      <Obj N="Controls" RefId="17">
+        <TNRef RefId="4" />
+        <LST>
+          <Obj RefId="18">
+            <TN RefId="10">
+              <T>System.DirectoryServices.Protocols.PageResultResponseControl</T>
+              <T>System.DirectoryServices.Protocols.DirectoryControl</T>
+              <T>System.Object</T>
+            </TN>
+            <ToString>System.DirectoryServices.Protocols.PageResultResponseControl</ToString>
+            <Props>
+              <BA N="Cookie" />
+              <I32 N="TotalCount">0</I32>
+              <S N="Type">1.2.840.113556.1.4.319</S>
+              <B N="IsCritical">false</B>
+              <B N="ServerSide">true</B>
+            </Props>
+          </Obj>
+        </LST>
+      </Obj>
+      <Obj N="ResultCode" RefId="19">
+        <TN RefId="11">
+          <T>System.DirectoryServices.Protocols.ResultCode</T>
+          <T>System.Enum</T>
+          <T>System.ValueType</T>
+          <T>System.Object</T>
+        </TN>
+        <ToString>Success</ToString>
+        <I32>0</I32>
+      </Obj>
+      <S N="ErrorMessage"></S>
+      <Obj N="Referral" RefId="20">
+        <TNRef RefId="3" />
+        <LST />
+      </Obj>
+    </Props>
+  </Obj>
+</Objs>

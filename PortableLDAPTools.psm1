@@ -5,6 +5,11 @@
 # TODO There's a lot of repetition again particularly between the functions that modify objects, 
 #      might want to try and centralize all of that as much as possible
 
+# TODO Move single attribute conversion to Convert-SearchResultAttributeCollection because 
+#      'LDAPGet <Group> member' seems to return... something... that manifests itself as empty lines 
+#      and the logic related to the attribute in Convert-SearchResultAttributeCollection might 
+#      help with that. This will likely also prevent other similar problems from occurring later.
+
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -98,7 +103,6 @@ $warningMessageColor = 'Yellow'
 $attentionMessageColor = 'White'
 $rageMessageColor = 'Red'
 $disappointedMessageColor = 'DarkMagenta'
-# TODO Add inquiringMessageColor
 
 $attributeMap = @{
     'SurName' = 'sn'
@@ -194,7 +198,6 @@ function Connect-LDAPServer
         $Script:ldapServer = New-Object -TypeName LdapConnection `
             -ArgumentList "$($Script:ldapServerName):$($Script:ldapPort)", $Script:credential, $Script:authType
     } catch {
-        # TODO Write-Host some sort of easy to read instructions instead
         throw "Error connecting to LDAP server: $($_.ToString())"
     }
 
@@ -492,6 +495,9 @@ function Send-LDAP
     if ($null -eq $Script:ldapServer) {
         Connect-LDAPServer
     }
+    if ($Request -is [SearchRequest] -and -not $Request.DistinguishedName) {
+        $Request.DistinguishedName = $Script:searchbase
+    }
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
             if ($_ -is [AddResponse]) {
@@ -535,6 +541,8 @@ function Invoke-LDAPQuery
         [Parameter(Mandatory=$false)][String]$Filter = '(&(cn=Administrators))',
         [Parameter(Mandatory=$false)][String[]]$AttributeList,
         [Parameter(Mandatory=$false)][String]$SearchBase,
+        [Parameter(Mandatory=$false)][SearchScope]$Scope = [SearchScope]::Subtree,
+        [Parameter(Mandatory=$false)][Int]$PageSize,
         [Parameter(Mandatory=$false)][Int]$SizeLimit
     )
 
@@ -562,29 +570,27 @@ function Invoke-LDAPQuery
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
-    $scope = [System.DirectoryServices.SearchScope]::Subtree
-
-    if (-not $Script:searchbase) {
-        Initialize-Configuration
+    $searchRequest = New-Object -TypeName SearchRequest -ArgumentList $null, $Filter, $Scope, $attributeList
+    if ($null -ne $SearchBase) {
+        $searchRequest.DistinguishedName = $SearchBase
     }
 
-    if (-not $SearchBase) {
-        $SearchBase = $Script:searchbase
-    }
-
-    $searchRequest = New-Object -TypeName SearchRequest `
-        -ArgumentList $SearchBase, $Filter, $scope, $AttributeList
-    
     if ($SizeLimit) {
         $searchRequest.SizeLimit = $SizeLimit
     }
 
-    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $Script:pageSize
+    if (-not $PageSize) {
+        if (-not $Script:PageSize) {
+            Initialize-Configuration # NOTE I still don't particularly enjoy having this be called here in 
+                                     #      addition to it being in Connect-LDAPServer
+        }
+        $PageSize = $Script:PageSize
+    }
+
+    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $PageSize
     $searchRequest.Controls.Add($pageRequest) | Out-Null
     
-    # TODO Send-LDAP throws an error when $Script:ldapServer.SendRequest($Request) is called and 
-    #      'member' was passed on AttributeList, fix
-    # TODO Also this first $searchResponse not being returned anywhere still doesn't seem right 
+    # TODO This first $searchResponse not being returned anywhere still doesn't seem right 
     #      although this all seems to be working, look into it
     $searchResponse = Send-LDAP -Request $searchRequest
     if ($searchResponse.Controls.Length -ne 1 -or
@@ -638,11 +644,7 @@ function Add-LDAPObject
         )][Hashtable]$AdditionalAttributes
     )
 
-    if ($null -eq $Script:ldapServer) {
-        $Script:ldapServer = Connect-LDAPServer
-    }
-
-    if ($OrganizationalUnit -notmatch ',DC=') { # TODO More robust test
+    if ($OrganizationalUnit -notmatch ',DC=') {
         # Assume this is a CanonicalName
         $OrganizationalUnit = ConvertTo-DistinguishedName -CanonicalName $OrganizationalUnit
     }
@@ -890,13 +892,9 @@ function Get-LDAPFuzzyQueryFilter
             $filter += ')'
         }
 
-        if (-not $Script:searchbase) {
-            Initialize-Configuration
-        }
-
         $filters += [PSCustomObject]@{
             Filter = $filter
-            SearchBase = $Script:searchbase
+            SearchBase = $null
         }
     }
     return $filters
@@ -933,7 +931,7 @@ function Get-LDAPAttributeValueQueryFilter
         
         $leaf = $AttributeValue -split ',' | Select-Object -First 1
         if ($leaf -notmatch '=') {
-            $search = "CN=$leaf" # TODO could add other attributes like OU too
+            $search = "CN=$leaf" # TODO could look for at least OU too in addition to CN
         } else {
             $search = $leaf
         }
@@ -987,10 +985,7 @@ function Get-LDAPAttributeValueQueryFilter
     }
 
     if (-not $searchBase) {
-        if (-not $Script:searchbase) {
-            Initialize-Configuration
-        }
-        $searchBase = $Script:searchbase
+        $searchBase = $null
     }
 
     return [PSCustomObject]@{
