@@ -14,6 +14,9 @@ $objectClassComputer = 'computer,organizationalPerson,person,top,user'
 $objectClassGroup = 'group,top'
 $objectClassOrganizationalUnit = 'organizationalUnit,top'
 
+$canonicalNamePattern = '^([\w]{1,}\.{1}[\w]{1,}){1,}/'
+$distinguishedNamePattern = ',DC=.*?$'
+
 # NOTE The below enumeration is on loan from:
 # http://www.digipine.com/index.php?mid=windowsmfc&document_srl=208
 
@@ -1125,12 +1128,14 @@ function Search-LDAP
         return
     }
 
-    $canonicalNamePattern = '^([\w]{1,}\.{1}[\w]{1,}){1,}/'
-    # TODO Add $distinguishedNamePattern
     $result = @()
     if ($SearchTerm.Count -eq 1) {
         if ($SearchTerm -match $canonicalNamePattern -and $SearchTerm -match '\*') {
             $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute CanonicalName `
+                -AttributeValue $SearchTerm
+        }
+        if ($SearchTerm -match $distinguishedNamePattern -and $SearchTerm -match '\*') {
+            $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute DistinguishedName `
                 -AttributeValue $SearchTerm
         }
     }
@@ -1975,17 +1980,18 @@ function Search-LDAPAndRemove
 function Search-LDAPAndMove
 {
     param(
-        [Parameter(Mandatory=$false)][string[]]$SearchTerm
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+        [Parameter(Mandatory=$false)][String]$TargetPath
     )
-
-    # TODO Add a TargetPath parameter that accepts either a canonicalname or distinguishedname to bypass 
-    #      the menu.
 
     if (-not $SearchTerm) {
         $description = "Looks for objects by search terms and moves them to a selected organizational unit."
+        $description += "TargetPath is not mandatory, the command gives a list to pick a target OU from."
         $usage = "LDAPMove SearchTerm(s)"
+        $usage += "LDAPMove SearchTerm(s) TargetPath"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = "Terms to find objects to move"
+        $parameters['TargetPath'] = "Canonical or Distinguished Name of and organizational unit or container"
         Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
@@ -2009,6 +2015,18 @@ function Search-LDAPAndMove
             Write-Host "You didn't pick an organizational unit to move selected objects to." `
                 -ForegroundColor $disappointedMessageColor
             return
+        }
+    } else {
+        if ($TargetPath -match $canonicalNamePattern) {
+            [PSCustomObject] $TargetPath = [PSCustomObject]@{
+                CanonicalName = $TargetPath
+                DistinguishedName = ConvertTo-DistinguishedName -CanonicalName $TargetPath -LeafAttribute 'OU'
+            }
+        } elseif ($TargetPath -match $distinguishedNamePattern) {
+            [PSCustomObject] $TargetPath = [PSCustomObject]@{
+                CanonicalName = ConvertTo-CanonicalName -DistinguishedName $TargetPath
+                DistinguishedName = $TargetPath
+            }
         }
     }
 
