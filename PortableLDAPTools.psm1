@@ -88,6 +88,7 @@ $configFile = "$pathMyDocuments\$scriptFileName.xml"
 
 $Script:credential = $null
 $Script:ldapServer = $null
+$Script:ServerSupportsPaging = $null
 
 $confirmMessageColor = $Host.PrivateData.FormatAccentColor # NOTE Just pretty much used this for now because 
                                                            #      the default is green.
@@ -587,23 +588,14 @@ function Invoke-LDAPQuery
         $PageSize = $Script:PageSize
     }
 
-    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $PageSize
-    $searchRequest.Controls.Add($pageRequest) | Out-Null
-    
-    # TODO This first $searchResponse not being returned anywhere still doesn't seem right 
-    #      although this all seems to be working, look into it
-    $searchResponse = Send-LDAP -Request $searchRequest
-    if ($searchResponse.Controls.Length -ne 1 -or
-        $searchResponse.Controls[0] -isnot [PageResultResponseControl]) {
-        throw "The server cannot page the result set"
-    }
-    while ($true) {
-        $pageResponse = [PageResultResponseControl]$searchResponse.Controls[0]
-        $pageRequest.Cookie = $pageResponse.Cookie
-        $searchResponse = Send-LDAP -Request $searchRequest
+    function Invoke-AttributeConversion
+    {
+        Param(
+            [Parameter(Mandatory=$false)]$SearchResponse
+        )
         if ($singleAttribute) {
             # Convert the single attribute
-            $searchResponse.Entries | ForEach-Object {
+            $SearchResponse.Entries | ForEach-Object {
                 if ($_.Attributes.Keys -contains $singleAttribute) {
                     Convert-SearchResultAttributeCollection -InputObject $_.Attributes `
                         -ReturnAttribute $singleAttribute
@@ -612,10 +604,42 @@ function Invoke-LDAPQuery
                 }
             }
         } else {
-            $searchResponse.Entries | ForEach-Object {
+            $SearchResponse.Entries | ForEach-Object {
                 Convert-SearchResultAttributeCollection -InputObject $_.Attributes
             }
         }
+    }
+
+    $pageRequest = New-Object -TypeName PageResultRequestControl -ArgumentList $PageSize
+    $searchRequest.Controls.Add($pageRequest) | Out-Null
+    
+    $note = "Note that the server does not support paging. Some objects may have not been returned."
+    if ($null -eq $Script:ServerSupportsPaging) {
+        # See if the server supports paging
+        $searchResponse = Send-LDAP -Request $searchRequest
+        if ($searchResponse.Controls.Length -ne 1 -or
+            $searchResponse.Controls[0] -isnot [PageResultResponseControl]) {
+            $Script:ServerSupportsPaging = $false
+            Invoke-AttributeConversion -SearchResponse
+            Write-Host $note -ForegroundColor $rageMessageColor
+            return
+        } else {
+            $Script:ServerSupportsPaging = $true
+        }
+    } elseif ($Script:ServerSupportsPaging -eq $false) {
+        $searchResponse = Send-LDAP -Request $searchRequest
+        Invoke-AttributeConversion -SearchResponse $searchResponse
+        Write-Host $note -ForegroundColor $rageMessageColor
+        return
+    } else {
+        $searchResponse = Send-LDAP -Request $searchRequest
+    }
+
+    while ($true) {
+        $pageResponse = [PageResultResponseControl] $searchResponse.Controls[0]
+        $pageRequest.Cookie = $pageResponse.Cookie
+        $searchResponse = Send-LDAP -Request $searchRequest
+        Invoke-AttributeConversion -SearchResponse $searchResponse
         if ($pageResponse.Cookie.Length -eq 0) {
             return
         }
