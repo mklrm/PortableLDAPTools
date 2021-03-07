@@ -71,7 +71,12 @@ FormatsToProcess = @('.\formats\LDAPObject.ps1xml')
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(
-    'Invoke-LDAPQuery',
+    'Get-LDAPLogFileList',
+    'Get-LDAPConnectionConfiguration',
+    'New-LDAPConnectionConfiguration',
+    'Edit-LDAPConnectionConfiguration',
+    'Set-LDAPConnectionConfigurationActive',
+    'Remove-LDAPConnectionConfiguration',
     'Search-LDAP', 
     'Search-LDAPByAttributeValue', 
     'Search-LDAPAndSetAttributeValue', 
@@ -80,15 +85,9 @@ FunctionsToExport = @(
     'Search-LDAPAndClearAttribute',
     'Search-LDAPAndAddGroupMember',
     'Search-LDAPAndRemoveGroupMember',
-    'Add-LDAPObject',
-    'Search-LDAPAndRemove',
+    'Search-LDAPGroupMembersRecursive',
     'Search-LDAPAndResetPassword',
-    'Get-LDAPLogFileList',
-    'New-LDAPConnectionConfiguration',
-    'Edit-LDAPConnectionConfiguration',
-    'Remove-LDAPConnectionConfiguration',
-    'Get-LDAPGroupMember',
-    'Search-LDAPGroupAndgetMembersRecursive',
+    'Search-LDAPAndRemove',
     'Search-LDAPAndMove',
     'Search-LDAPAndDisable',
     'Search-LDAPAndEnable'
@@ -102,6 +101,7 @@ VariablesToExport = '*'
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
 AliasesToExport = @(
+    'LDAPGetLogList', 
     'LDAPGet', 
     'LDAPGetBy', 
     'LDAPSet', 
@@ -110,11 +110,9 @@ AliasesToExport = @(
     'LDAPClr', 
     'LDAPAddMember', 
     'LDAPRemMeber', 
-    'LDAPAddObj', 
-    'LDAPRemObj', 
-    'LDAPSetPass', 
-    'LDAPGetLogList', 
     'LDAPGetMemberRecursive', 
+    'LDAPSetPass', 
+    'LDAPRemObj', 
     'LDAPMove', 
     'LDAPDisable', 
     'LDAPEnable'

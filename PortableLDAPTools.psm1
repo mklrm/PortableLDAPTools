@@ -1,4 +1,6 @@
 
+# PortableLDAPTools.psm1 / Lauri Mikkola 2021
+
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
@@ -122,35 +124,102 @@ if ($config.logFileFullName) {
     $logFileFullName = $config.logFileFullName
 }
 
-function Get-LDAPCredential
-{
-    if (-not $Script:userPassword) {
-        Write-Host "Enter password for user $($Script:userDomain)\$($Script:userName):"
-        $Script:userPassword = Read-Host -AsSecureString
-    }
+# INTERNAL FUNCTIONS
 
-    if ($Script:authType -eq 'Basic') {
-        $Script:credential = New-Object `
-            -TypeName System.Net.NetworkCredential `
-            -ArgumentList "$($Script:userDomain)\$($Script:userName)", $Script:userPassword
+function Invoke-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$false)][String]$ConfigurationName,
+        [Parameter(Mandatory=$false)][PSCustomObject]$Configuration
+    )
+
+    if (-not $Configuration -and -not $ConfigurationName) {
+        Write-Host "Pass either a Configuration or a ConfigurationName" -ForegroundColor $rageMessageColor
         return
     }
 
-    if ($Script:authType -eq 'Negotiate') {
-        if ($PSVersionTable.OS -match 'Linux') {
-            $Script:credential = New-Object `
-                -TypeName System.Net.NetworkCredential `
-                -ArgumentList $($Script:userDomain)\$($Script:userName), $Script:userPassword
-            return
-        } else {
-            $Script:credential = New-Object `
-                -TypeName System.Net.NetworkCredential `
-                -ArgumentList $Script:userName, $Script:userPassword, $Script:userDomain
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    }
+    
+    if ($ConfigurationName) {
+        $Configuration = $config.ConfigurationList | Where-Object { $_.configName -eq $ConfigurationName }
+        if (-not $Configuration) {
+            Write-Host "Could not find an existing configuration named $ConfigurationName" `
+                -ForegroundColor $rageMessageColor
             return
         }
     }
 
-    throw "Unsupported authentication authentication type $Script:authType, use Basic or Negotiate"
+    $hideKeysStrokes = $true
+    Write-Host "Load the configuration [Y/N]?" -ForegroundColor Yellow
+    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    switch ($key) {
+        Y {
+            $Script:ldapServerName = $Configuration.ldapServerName
+            $Script:ldapPort = $Configuration.ldapPort
+            $Script:userDomain = $Configuration.userDomain
+            $Script:userName = $Configuration.userName
+            $Script:userPassword = $Configuration.userPassword
+            $Script:authType = $Configuration.authType
+            $Script:searchbase = $Configuration.searchbase
+            $Script:pageSize = $Configuration.pageSize
+            Write-Host "Configuration loaded."
+        }
+        N {
+            Write-Host "You picked [N]o."
+        }
+        Default {
+            Write-Host "I'll take that as a [N]o."
+        }
+    }
+}
+
+function Export-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$NewConfiguration
+    )
+
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    } else {
+        $config = [PSCustomObject]@{
+            ActiveConfigurationName = $null
+            ConfigurationList = @()
+        }
+    }
+
+    if ($config.ConfigurationList.configName -contains $NewConfiguration.configName) {
+        $config.ConfigurationList = $config.ConfigurationList | `
+            Where-Object { $_.configName -ne $NewConfiguration.configName }
+    }
+
+    if ($config.ConfigurationList -ne [Array]) {
+        $tmp = $config.ConfigurationList
+        $config.ConfigurationList = @()
+        $config.ConfigurationList += $tmp
+    }
+    $config.ConfigurationList += $NewConfiguration
+
+    Invoke-LDAPConnectionConfiguration -Configuration $newConfig
+
+    Write-Host "Set the configuration as active (meaning it's loaded when the module is imported) [Y/N]?" `
+        -Foregroundcolor Yellow
+    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    switch ($key) {
+        Y {
+            $config.ActiveConfigurationName = $newConfig.configName
+            Write-Host "Configuration set as active."
+        }
+        N {
+            Write-Host "You picked [N]o."
+        }
+        Default {
+            Write-Host "I'll take that as a [N]o."
+        }
+    }
+    $config | Export-Clixml -Path $configFile -Force
 }
 
 function Initialize-Configuration
@@ -182,6 +251,37 @@ function Initialize-Configuration
     $Script:authType = $activeConfig.authType
     $Script:searchbase = $activeConfig.searchbase
     $Script:pageSize = $activeConfig.pageSize
+}
+
+function Get-LDAPCredential
+{
+    if (-not $Script:userPassword) {
+        Write-Host "Enter password for user $($Script:userDomain)\$($Script:userName):"
+        $Script:userPassword = Read-Host -AsSecureString
+    }
+
+    if ($Script:authType -eq 'Basic') {
+        $Script:credential = New-Object `
+            -TypeName System.Net.NetworkCredential `
+            -ArgumentList "$($Script:userDomain)\$($Script:userName)", $Script:userPassword
+        return
+    }
+
+    if ($Script:authType -eq 'Negotiate') {
+        if ($PSVersionTable.OS -match 'Linux') {
+            $Script:credential = New-Object `
+                -TypeName System.Net.NetworkCredential `
+                -ArgumentList $($Script:userDomain)\$($Script:userName), $Script:userPassword
+            return
+        } else {
+            $Script:credential = New-Object `
+                -TypeName System.Net.NetworkCredential `
+                -ArgumentList $Script:userName, $Script:userPassword, $Script:userDomain
+            return
+        }
+    }
+
+    throw "Unsupported authentication authentication type $Script:authType, use Basic or Negotiate"
 }
 
 function Connect-LDAPServer
@@ -235,242 +335,29 @@ function Write-Log
         -Encoding $logFileEncoding -Append -Force
 }
 
-try {
-    $msg = "$PSCommandPath loading"
-    Write-Log -Message $msg -ErrorAction Stop
-    Write-Log -Message "Logging to $logFileFullName"
-} catch {
-    $err = $_.ToString()
-    throw "Error writing to log file $($logFileFullName): $err"
-}
-
-function Get-LDAPLogFileList
+function Get-RandomString
 {
     Param(
-        [Parameter(Mandatory=$false)][Int]$First,
-        [Parameter(Mandatory=$false)][Int]$Last
+        [Parameter(Mandatory=$false)][Int]$Length = 16
     )
-    $logPathList = Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | `
-        Sort-Object
-    if ($First) {
-        $logPathList | Select-Object -First $First
-    }
-    if ($Last) {
-        $logPathList | Select-Object -Last $Last
-    }
-    if (-not $First -and -not $Last) {
-        $logPathList
-    }
-}
-
-function New-LDAPConnectionConfiguration
-{
-    if (Test-Path -Path $configFile) {
-        $config = Import-Clixml -Path $configFile
-    } else {
-        $config = [PSCustomObject]@{
-            ActiveConfigurationName = $null
-            ConfigurationList = @()
-        }
-    }
-    Write-Host "Please enter..." -ForegroundColor Green
-    Write-Host "Configuration name is used to pick between different configurations on the same computer."
-    $configName = Read-Host -Prompt "Configuration name"
-    Write-Host "`nLDAP server name could also be an IP address"
-    $configServer = Read-Host -Prompt "LDAP server name"
-    Write-Host "`nActive Directory listens to LDAP in 389 and LDAPS in 636 on default settings"
-    $configPort = Read-Host -Prompt "LDAP server port"
-    $msg = "`nDistinguishedName of the path where you want searches to start. Generally domain root " 
-    $msg += "would be a good one for the purposes of this script."
-    Write-Host $msg
-    $configSearchBase = Read-Host -Prompt "SearchBase"
-    Write-Host "`nDomain of the user you're using to connect to the LDAP server"
-    $configUserDomain = Read-Host -Prompt "User domain"
-    Write-Host "`nName of the user you're using to connect to the LDAP server"
-    $configUserName = Read-Host -Prompt "User name"
-    $msg = "`nPassword of the user you're using to connect to the LDAP server, enter nothing for " 
-    $msg += "none and be required to enter a password once after importing the module and running a query. " 
-    $msg += "Thereafter you will not be required to enter the password again for the duration of the "
-    $msg += "powershell session or until you import the module again."
-    Write-Host $msg
-    $configUserPassword = Read-Host -Prompt "User password" -AsSecureString
-    $msg = "`nNegotiate is a pretty good default for Active Directory unless you want to go for "
-    $msg += "the Kerberos or nothing route."
-    Write-Host $msg
-    $configAuthentication = Read-Host -Prompt "Authentication (Negotiate is a good default for AD)"
-    $msg =  "`nPage size determines how many results the LDAP server is asked to return at a "
-    $msg +=  "time which has performance implications of the LDAP server. This script uses 5000 as the "
-    $msg += "default if you enter none. This shouldn't choke pretty much any server and they tend to "
-    $msg += "have protection anyway." 
-    Write-Host $msg
-    $configPageSize = Read-Host -Prompt "Page size"
-
-    $newConfig = [PSCustomObject]@{
-        configName = $configName
-        ldapServerName = $configServer
-        ldapPort = $configPort
-        searchbase = $configSearchBase
-        userDomain = $configUserDomain
-        userName = $configUserName
-        userPassword = $configUserPassword
-        authType = $configAuthentication
-        pageSize = $configPageSize
-    }
-
-    Write-Host "`nPlease review and edit any values you're not happy with." -ForegroundColor Yellow
-    if ($config.ConfigurationList.configName -contains $configName) {
-        Write-Host "$configFile already contains a configuration called $configName." `
-            -ForegroundColor $rageMessageColor
-        Write-Host "Change the configuration name if you do not want to overwrite the old one." `
-            -ForegroundColor $rageMessageColor
-    }
-    $newConfig = Edit-LDAPConnectionConfiguration -Configuration $newConfig
-
-    if ($newConfig) {
-        if ($config.ConfigurationList.configName -contains $newConfig.configName) {
-            $config.ConfigurationList = $config.ConfigurationList | `
-                Where-Object { $_.configName -ne $newConfig.configName }
-        }
-        $config.ConfigurationList += $newConfig
-        $hideKeysStrokes = $true
-        Write-Host "Load the configuration [Y/N]?" -ForegroundColor Yellow
-        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
-        switch ($key) {
-            Y {
-                $Script:ldapServerName = $newConfig.ldapServerName
-                $Script:ldapPort = $newConfig.ldapPort
-                $Script:userDomain = $newConfig.userDomain
-                $Script:userName = $newConfig.userName
-                $Script:userPassword = $newConfig.userPassword
-                $Script:authType = $newConfig.authType
-                $Script:searchbase = $newConfig.searchbase
-                $Script:pageSize = $newConfig.pageSize
-                Write-Host "Configuration loaded."
+    # Basic idea largely stolen from:
+    # https://devblogs.microsoft.com/scripting/generate-random-letters-with-powershell/
+    $letterRange = (65..90) + (97..122)
+    $specialCharacters = '!@#$%^&*()_+=-<>/\' -split '' | Where-Object { $_ }
+    $charArray = 1..$Length | ForEach-Object {
+        switch (Get-Random -Maximum 3) {
+            0 {
+                [char]($letterRange | Get-Random)
             }
-            N {
-                Write-Host "You picked [N]o."
+            1 {
+                $specialCharacters | Get-Random
             }
-            Default {
-                Write-Host "I'll take that as a [N]o."
-            }
-        }
-        Write-Host "Set the configuration as active (meaning it's loaded when the module is imported) [Y/N]?" `
-            -Foregroundcolor Yellow
-        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
-        switch ($key) {
-            Y {
-                $config.ActiveConfigurationName = $newConfig.configName
-                Write-Host "Configuration set as active."
-            }
-            N {
-                Write-Host "You picked [N]o."
-            }
-            Default {
-                Write-Host "I'll take that as a [N]o."
-            }
-        }
-        $config | Export-Clixml -Path $configFile -Force
-    }
-}
-
-function Edit-LDAPConnectionConfiguration
-{
-    Param(
-        [Parameter(Mandatory=$true)][PSCustomObject]$Configuration
-    )
-
-    if (Test-Path -Path $configFile) {
-        $config = Import-Clixml -Path $configFile
-    }
-
-    while ($true) {
-        $msg = "1..Configuration name : $($Configuration.configName)`n" + `
-               "2....LDAP server name : $($Configuration.ldapServerName)`n" + `
-               "3....LDAP server port : $($Configuration.ldapPort)`n" + `
-               "4..........SearchBase : $($Configuration.searchbase)`n" + `
-               "5.........User domain : $($Configuration.userDomain)`n" + `
-               "6...........User name : $($Configuration.userName)`n" + `
-               "7.......User password : $($Configuration.userPassword)`n" + `
-               "8......Authentication : $($Configuration.authType)`n" + `
-               "9...........Page size : $($Configuration.pageSize)`n"
-        Write-Host $msg 
-        Write-Host "`nPick a number to modify a setting`n"
-        Write-Host "[A]pply, Esc to cancel`n"
-        $hideKeysStrokes = $true
-        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
-        switch ($key) {
-            D1 {
-                Write-Host "Enter new value for configuration name"
-                $Configuration.configName = Read-Host -Prompt "New value"
-            }
-            D2 {
-                Write-Host "Enter new value for LDAP server name"
-                $Configuration.ldapServerName = Read-Host -Prompt "New value"
-            }
-            D3 {
-                Write-Host "Enter new value for LDAP server port"
-                $Configuration.ldapPort = Read-Host -Prompt "New value"
-            }
-            D4 {
-                Write-Host "Enter new value for search base"
-                $Configuration.searchbase = Read-Host -Prompt "New value"
-            }
-            D5 {
-                Write-Host "Enter new value for user domain"
-                $Configuration.userDomain = Read-Host -Prompt "New value"
-            }
-            D6 {
-                Write-Host "Enter new value for user name"
-                $Configuration.userName = Read-Host -Prompt "New value"
-            }
-            D7 {
-                Write-Host "Enter new value for user password"
-                $Configuration.userPassword = Read-Host -Prompt "New value" -AsSecureString
-            }
-            D8 {
-                Write-Host "Enter new value for authentication type"
-                $Configuration.authType = Read-Host -Prompt "New value"
-            }
-            D9 {
-                Write-Host "Enter new value for page size"
-                $Configuration.pageSize = Read-Host -Prompt "New value"
-            }
-            A {
-                if ($config.ConfigurationList.configName -contains $configName) {
-                    Write-Host "Configuration named $configName already exists, overwrite [Y/N]?" `
-                        -ForegroundColor $attentionMessageColor
-                    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
-                    switch ($key) {
-                        Y {
-                            Write-Host "Overwriting previous configuration $configName."
-                        }
-                        N {
-                            Write-Host "Discarding new configuration."
-                            return $null
-                        }
-                        Default {
-                            Write-Host "Discarding new configuration."
-                            return $null
-                        }
-                    }
-                }
-                Write-Host "[A]pplying settings"
-                return $Configuration
-            }
-            Escape {
-                Write-Host "Discarding new configuration."
-                return $null
+            2 {
+                Get-Random -Maximum 9
             }
         }
     }
-}
-
-function Remove-LDAPConnectionConfiguration
-{
-    Param(
-        [Parameter(Mandatory=$true)][String[]]$Name
-    )
-    # TODO Implement
+    $charArray -join ''
 }
 
 function Write-Help
@@ -937,10 +824,6 @@ function Convert-SearchResultAttributeCollection
     }
 }
 
-# NOTE ALL OF THE BELOW FUNCTIONS ARE MEANT TO BE USED INTERACTIVELY, NOT IN A SCRIPT.
-# They make fuzzy searches so objects found and selected for modification might not 
-# be what you'd expect.
-
 function Get-LDAPFuzzyQueryFilter
 {
     Param(
@@ -1125,6 +1008,529 @@ function Select-LDAPObject
     }
 }
 
+function Select-LDAPTargetObject
+{
+    Param(
+        [Parameter(Mandatory=$true)]$LDAPObjectList,
+        [Parameter(Mandatory=$true)][String]$Title
+    )
+    $apply = $false
+    while ($apply -eq $false) {
+        Write-Host "$Title`n" -ForegroundColor Yellow
+        foreach ($ldapObject in $LDAPObjectList) {
+            Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
+        }
+        if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
+            $footer ='[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+        } else {
+            $footer ='[A]pply, Esc to cancel'
+        }
+        Write-Host "`n$footer" -ForegroundColor Yellow
+        $answer = Select-LDAPObject -ObjectList $LDAPObjectList
+        if ($answer -eq 'Apply') {
+            $apply = $true
+        } else {
+            $ldapObjectList = $answer
+        }
+        if ($ldapObjectList.Count -eq 0) {
+            $apply = $true
+        }
+    }
+    return $LDAPObjectList
+}
+
+function Get-MembershipMap
+{
+    param(
+        [parameter(mandatory=$false)]$LDAPGroupList,
+        [parameter(mandatory=$false)]$LDAPMemberList
+    )
+    $membershipMap = @()
+    foreach ($ldapGroup in $LDAPGroupList) {
+        $LDAPMemberModifyList = $LDAPMemberList
+        if ($LDAPMemberList -eq '*') {
+            $filter = "(&(memberof=$($ldapGroup.DistinguishedName)))"
+            $LDAPMemberModifyList = Invoke-LDAPQuery -Filter $filter
+        }
+        foreach ($ldapMember in $LDAPMemberModifyList) {
+            $membershipMap += [PSCustomObject]@{
+                Group = $ldapGroup
+                Member = $ldapMember
+                Name = "$($ldapGroup.canonicalname) - $($ldapMember.canonicalname)"
+            }
+        }
+    }
+    $membershipMap
+}
+
+function Select-LDAPGroupMemberModificationTarget
+{
+    param(
+        [parameter(mandatory=$false)]$LDAPGroupList,
+        [parameter(mandatory=$false)]$LDAPMemberList,
+        [parameter(mandatory=$True)]
+        [ValidateSet('Add','Remove')]$Operation,
+        [parameter(mandatory=$false)]$Instructions
+    )
+
+    if ($Operation -eq 'Add') {
+        $operationDescription = "About to add group members:"
+        $direction = 'to'
+    } elseif ($Operation -eq 'Remove') {
+        $operationDescription = "About to remove group members:"
+        $direction = 'from'
+    }
+
+    $membershipMap = Get-MembershipMap -LDAPGroupList $LDAPGroupList -LDAPMemberList $LDAPMemberList
+    if ($Operation -eq 'Remove' -and -not $membershipMap) {
+        Write-Host "There's no members in the passed groups to remove."
+        return
+    }
+    $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
+    $apply = $false
+    while ($apply -eq $false) {
+        Write-Host "$OperationDescription`n" -ForegroundColor Yellow
+        foreach ($entry in $membershipMap) {
+            $member = "'$($entry.Member.canonicalname)'"
+            $member = $member.PadRight($topLength + 2) # The 2 is the ' surrounding $member
+            $group = "'$($entry.Group.canonicalname)'"
+            Write-Host "    $member $direction $group" -ForegroundColor Green
+        }
+        Write-Host "`n$Instructions" -ForegroundColor Yellow
+        $answer = Select-LDAPObject -ObjectList $membershipMap -DisplayProperty Name
+        if ($answer -eq 'Apply') {
+            $apply = $true
+        } else {
+            $membershipMap = $answer
+        }
+        if ($membershipMap.Count -eq 0) {
+            $apply = $true
+        }
+    }
+    return $membershipMap
+}
+
+function Search-LDAPAndModifyGroupMember
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Add', 'Remove')]
+        [String]$Operation
+    )
+
+    $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
+    if ($PSVersionTable.OS -and  $PSVersionTable.OS -notmatch 'Windows') {
+        $instructions = '[A]pply, Esc to cancel'
+    }
+
+    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
+    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
+        Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
+    }
+
+    if ($Operation -eq 'Remove' -and $SearchTermMember -eq '*') {
+        $ldapMemberList = '*'
+    } else {
+        $ldapMemberList = Search-LDAP -SearchTerm $SearchTermMember
+    }
+
+    if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
+        if (-not $NoConfirmation.IsPresent) {
+            $modifyMap = Select-LDAPGroupMemberModificationTarget `
+                -LDAPGroupList $ldapGroupList `
+                -LDAPMemberList $ldapMemberList `
+                -Operation $Operation `
+                -Instructions $instructions
+        } else {
+            $modifyMap = Get-MembershipMap `
+                -LDAPGroupList $LDAPGroupList `
+                -LDAPMemberList $LDAPMemberList
+        }
+        # NOTE Since group member lists are cached there's always a 
+        #      possibility something else modifies it while this 
+        #      function is doing the same
+        $memberCache = @{}
+        Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
+        $failures = 0
+        foreach ($modifyEntry in $modifyMap) {
+            $groupDN = $modifyEntry.Group.DistinguishedName
+            $memberDN = $modifyEntry.Member.DistinguishedName
+            $groupCanName = $modifyEntry.Group.canonicalname
+            $groupMemName = $modifyEntry.Member.canonicalname
+            if (-not ($memberCache.Keys -contains $groupDN)) {
+                $memberFilter = "(&(memberof=$groupDN))"
+                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
+                    -AttributeList 'distinguishedname'))
+            }
+            try {
+                if ($Operation -eq 'Add') {
+                    if ($memberCache[$groupDN] -contains $modifyEntry.Member.distinguishedname) {
+                        $msg = "'$groupCanName' already contains '$groupMemName'"
+                        Write-Log -Message $msg -NoEcho
+                    } else {
+                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
+                            -Values $memberDN -ErrorAction Stop
+                        $msg = "'$groupCanName' member '$groupMemName' added"
+                        Write-Log -Message $msg -NoEcho
+                    }
+                }
+                if ($Operation -eq 'Remove') {
+                    if ($memberCache[$groupDN] -notcontains $modifyEntry.Member.distinguishedname) {
+                        $msg = "'$groupCanName' does not contain '$groupMemName'"
+                        Write-Log -Message $msg -NoEcho
+                    } else {
+                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
+                            -Values $memberDN -ErrorAction Stop
+                        $msg = "'$groupCanName' member '$groupMemName' removed"
+                        Write-Log -Message $msg -NoEcho
+                    }
+                }
+                Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
+            } catch {
+                $err = $_.ToString()
+                if ($Operation -eq 'Add') {
+                    $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
+                } elseif ($Operation -eq 'Remove') {
+                    $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
+                }
+                Write-Log -Message $msg -Level Error -NoEcho
+                Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
+                $failures++
+            }                
+        }
+        $color = $happyMessageColor
+        if ($failure -gt 0) {
+            $color = $rageMessageColor
+        }
+        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $logFileFullName for details." `
+            -ForegroundColor $color
+    } else {
+        if ($Operation -eq 'Add') {
+            if ($ldapGroupList.Count -gt 0) {
+                Write-Host "Found no members to add."
+            } else {
+                Write-Host "Found no groups to add members to."
+            }
+        } elseif ($Operation -eq 'Remove') {
+            if ($ldapGroupList.Count -gt 0) {
+                Write-Host "Found no members to remove."
+            } else {
+                Write-Host "Found no groups to remove members from."
+            }
+        }
+    }
+}
+
+function Search-LDAPAndRemoveGroupMember
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
+    )
+
+    if (-not $SearchTermGroup -or -not $SearchTermMember) {
+        $description = "Finds groups and objects to attempt to remove from said groups. Passing '*' as SearchTermMember offers to remove all current members of a group. Allows user to pick which objects to add to which groups via an interactive menu."
+        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
+            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
+        $sTMInfo = "Terms to find objects to add to groups, use * to remove all members"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchTermGroup'] = "Terms to find groups"
+        $parameters['SearchTermMember'] = $sTMInfo
+        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
+        return
+    }
+    if (-not $NoConfirmation.IsPresent) {
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation Remove
+    } else {
+        Search-LDAPAndModifyGroupMember `
+            -SearchTermGroup $SearchTermGroup `
+            -SearchTermMember $SearchTermMember `
+            -Operation Remove `
+            -NoConfirmation
+    }
+}
+
+# //INTERNAL FUNCTIONS
+
+# EXPORTED FUNCTIONS
+
+function Get-LDAPLogFileList
+{
+    Param(
+        [Parameter(Mandatory=$false)][Int]$First,
+        [Parameter(Mandatory=$false)][Int]$Last
+    )
+    $logPathList = Get-ChildItem $logFileNameFullNameFilter | Select-Object -ExpandProperty FullName | `
+        Sort-Object
+    if ($First) {
+        $logPathList | Select-Object -First $First
+    }
+    if ($Last) {
+        $logPathList | Select-Object -Last $Last
+    }
+    if (-not $First -and -not $Last) {
+        $logPathList
+    }
+}
+
+function Get-LDAPConnectionConfiguration
+{
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    } else {
+        Write-Host "Configuration file $configFile does not exist." -ForegroundColor $warningMessageColor
+        return
+    }
+
+    Write-Host "Active configuration: $($config.ActiveConfigurationName)" -ForegroundColor $happyMessageColor
+    
+    foreach ($conf in $config.ConfigurationList) {
+        $conf | Format-List
+    }
+}
+
+function New-LDAPConnectionConfiguration
+{
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    } else {
+        $config = [PSCustomObject]@{
+            ActiveConfigurationName = $null
+            ConfigurationList = @()
+        }
+    }
+    Write-Host "Please enter..." -ForegroundColor Green
+    Write-Host "Configuration name is used to pick between different configurations on the same computer."
+    $configName = Read-Host -Prompt "Configuration name"
+    Write-Host "`nLDAP server name could also be an IP address"
+    $configServer = Read-Host -Prompt "LDAP server name"
+    Write-Host "`nActive Directory listens to LDAP in 389 and LDAPS in 636 on default settings"
+    $configPort = Read-Host -Prompt "LDAP server port"
+    $msg = "`nDistinguishedName of the path where you want searches to start. Generally domain root " 
+    $msg += "would be a good one for the purposes of this script."
+    Write-Host $msg
+    $configSearchBase = Read-Host -Prompt "SearchBase"
+    Write-Host "`nDomain of the user you're using to connect to the LDAP server"
+    $configUserDomain = Read-Host -Prompt "User domain"
+    Write-Host "`nName of the user you're using to connect to the LDAP server"
+    $configUserName = Read-Host -Prompt "User name"
+    $msg = "`nPassword of the user you're using to connect to the LDAP server, enter nothing for " 
+    $msg += "none and be required to enter a password once after importing the module and running a query. " 
+    $msg += "Thereafter you will not be required to enter the password again for the duration of the "
+    $msg += "powershell session or until you import the module again."
+    Write-Host $msg
+    $configUserPassword = Read-Host -Prompt "User password" -AsSecureString
+    $msg = "`nNegotiate is a pretty good default for Active Directory unless you want to go for "
+    $msg += "the Kerberos or nothing route."
+    Write-Host $msg
+    $configAuthentication = Read-Host -Prompt "Authentication (Negotiate is a good default for AD)"
+    $msg =  "`nPage size determines how many results the LDAP server is asked to return at a "
+    $msg +=  "time which has performance implications of the LDAP server. This script uses 5000 as the "
+    $msg += "default if you enter none. This shouldn't choke pretty much any server and they tend to "
+    $msg += "have protection anyway." 
+    Write-Host $msg
+    $configPageSize = Read-Host -Prompt "Page size"
+
+    $newConfig = [PSCustomObject]@{
+        configName = $configName
+        ldapServerName = $configServer
+        ldapPort = $configPort
+        searchbase = $configSearchBase
+        userDomain = $configUserDomain
+        userName = $configUserName
+        userPassword = $configUserPassword
+        authType = $configAuthentication
+        pageSize = $configPageSize
+    }
+
+    Write-Host "`nPlease review and edit any values you're not happy with." -ForegroundColor Yellow
+    Edit-LDAPConnectionConfiguration -Configuration $newConfig
+}
+
+function Edit-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$false)][String]$ConfigurationName,
+        [Parameter(Mandatory=$false)][PSCustomObject]$Configuration
+    )
+
+    if (-not $Configuration -and -not $ConfigurationName) {
+        Write-Host "Pass either a Configuration or a ConfigurationName" -ForegroundColor $rageMessageColor
+        return
+    }
+
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    }
+    
+    if ($ConfigurationName) {
+        $Configuration = $config.ConfigurationList | Where-Object { $_.configName -eq $ConfigurationName }
+        if (-not $Configuration) {
+            Write-Host "Could not find an existing configuration named $ConfigurationName" `
+                -ForegroundColor $rageMessageColor
+            return
+        }
+    }
+
+    $originalConfigName = $Configuration.configName
+
+    while ($true) {
+        $msg = "1..Configuration name : $($Configuration.configName)`n" + `
+               "2....LDAP server name : $($Configuration.ldapServerName)`n" + `
+               "3....LDAP server port : $($Configuration.ldapPort)`n" + `
+               "4..........SearchBase : $($Configuration.searchbase)`n" + `
+               "5.........User domain : $($Configuration.userDomain)`n" + `
+               "6...........User name : $($Configuration.userName)`n" + `
+               "7.......User password : $($Configuration.userPassword)`n" + `
+               "8......Authentication : $($Configuration.authType)`n" + `
+               "9...........Page size : $($Configuration.pageSize)`n"
+        Write-Host $msg 
+        Write-Host "`nPick a number to modify a setting`n"
+        Write-Host "[A]pply, Esc to cancel`n"
+        $hideKeysStrokes = $true
+        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        switch ($key) {
+            D1 {
+                Write-Host "Enter new value for configuration name"
+                $Configuration.configName = Read-Host -Prompt "New value"
+            }
+            D2 {
+                Write-Host "Enter new value for LDAP server name"
+                $Configuration.ldapServerName = Read-Host -Prompt "New value"
+            }
+            D3 {
+                Write-Host "Enter new value for LDAP server port"
+                $Configuration.ldapPort = Read-Host -Prompt "New value"
+            }
+            D4 {
+                Write-Host "Enter new value for search base"
+                $Configuration.searchbase = Read-Host -Prompt "New value"
+            }
+            D5 {
+                Write-Host "Enter new value for user domain"
+                $Configuration.userDomain = Read-Host -Prompt "New value"
+            }
+            D6 {
+                Write-Host "Enter new value for user name"
+                $Configuration.userName = Read-Host -Prompt "New value"
+            }
+            D7 {
+                Write-Host "Enter new value for user password"
+                $Configuration.userPassword = Read-Host -Prompt "New value" -AsSecureString
+            }
+            D8 {
+                Write-Host "Enter new value for authentication type"
+                $Configuration.authType = Read-Host -Prompt "New value"
+            }
+            D9 {
+                Write-Host "Enter new value for page size"
+                $Configuration.pageSize = Read-Host -Prompt "New value"
+            }
+            A {
+                $configName = $Configuration.configName
+                if ($config.ConfigurationList.configName -contains $configName) {
+                    Write-Host "About to replace and existing configuration, overwrite [Y/N]?" `
+                        -ForegroundColor $attentionMessageColor
+                    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+                    switch ($key) {
+                        Y {
+                            Write-Host "Overwriting previous configuration." -ForegroundColor $happyMessageColor
+                        }
+                        N {
+                            Write-Host "Discarding new configuration." -ForegroundColor $cancelMessageColor
+                            return $null
+                        }
+                        Default {
+                            Write-Host "Discarding new configuration." -ForegroundColor $cancelMessageColor
+                            return $null
+                        }
+                    }
+                }
+                Write-Host "[A]pplying settings"
+                if ($configName -ne $originalConfigName) {
+                    Write-Host "Configuration name was changed from $originalConfigName to $configName." `
+                        -ForegroundColor $warningMessageColor
+                    Write-Host "Removing old configuration and adding new one with different name." `
+                        -ForegroundColor $warningMessageColor
+                    Remove-LDAPConnectionConfiguration -ConfigurationName $originalConfigName
+                }
+                Export-LDAPConnectionConfiguration -NewConfiguration $Configuration
+                return
+            }
+            Escape {
+                Write-Host "Discarding new configuration."
+                return $null
+            }
+        }
+    }
+}
+
+function Set-LDAPConnectionConfigurationActive
+{
+    Param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$ConfigurationName
+    )
+
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    }
+    
+    $Configuration = $config.ConfigurationList | Where-Object { $_.configName -eq $ConfigurationName }
+    if (-not $Configuration) {
+        Write-Host "Could not find an existing configuration named $ConfigurationName" `
+            -ForegroundColor $rageMessageColor
+        return
+    } else {
+        try {
+            $config.ActiveConfigurationName = $ConfigurationName
+            $config | Export-Clixml -Path $configFile -Force
+            Write-Host "Active configuration set to $ConfigurationName" -ForegroundColor $happyMessageColor
+            Invoke-LDAPConnectionConfiguration -ConfigurationName $ConfigurationName
+        } catch {
+            $msg = "Error setting active configuration to $ConfigurationName "
+            $msg += "in $($configFile): $($_.ToString())"
+            Write-Host $msg -ForegroundColor $rageMessageColor
+        }
+    }
+}
+
+function Remove-LDAPConnectionConfiguration
+{
+    Param(
+        [Parameter(Mandatory=$true)][PSCustomObject]$ConfigurationName
+    )
+
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    }
+    
+    $Configuration = $config.ConfigurationList | Where-Object { $_.configName -eq $ConfigurationName }
+    if (-not $Configuration) {
+        Write-Host "Could not find an existing configuration named $ConfigurationName" `
+            -ForegroundColor $rageMessageColor
+        return
+    } else {
+        try {
+            $config.ConfigurationList = $config.ConfigurationList | `
+                Where-Object { $_.configName -ne $ConfigurationName }
+            $config | Export-Clixml -Path $configFile -Force
+            Write-Host "Configuration $ConfigurationName removed from $configFile" `
+                -ForegroundColor $happyMessageColor
+        } catch {
+            Write-Host "Error removing configuration $ConfigurationName from $($configFile): $($_.ToString())" `
+                -ForegroundColor $rageMessageColor
+        }
+    }
+}
+
 function Search-LDAP
 {
     Param(
@@ -1203,37 +1609,6 @@ function Search-LDAPByAttributeValue
     } else {
         $result | Select-Object $ReturnAttribute
     }
-}
-
-function Select-LDAPTargetObject
-{
-    Param(
-        [Parameter(Mandatory=$true)]$LDAPObjectList,
-        [Parameter(Mandatory=$true)][String]$Title
-    )
-    $apply = $false
-    while ($apply -eq $false) {
-        Write-Host "$Title`n" -ForegroundColor Yellow
-        foreach ($ldapObject in $LDAPObjectList) {
-            Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
-        }
-        if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
-            $footer ='[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-        } else {
-            $footer ='[A]pply, Esc to cancel'
-        }
-        Write-Host "`n$footer" -ForegroundColor Yellow
-        $answer = Select-LDAPObject -ObjectList $LDAPObjectList
-        if ($answer -eq 'Apply') {
-            $apply = $true
-        } else {
-            $ldapObjectList = $answer
-        }
-        if ($ldapObjectList.Count -eq 0) {
-            $apply = $true
-        }
-    }
-    return $LDAPObjectList
 }
 
 function Search-LDAPAndSetAttributeValue
@@ -1492,191 +1867,6 @@ function Search-LDAPAndClearAttribute
         -ForegroundColor $color
 }
 
-function Get-MembershipMap
-{
-    param(
-        [parameter(mandatory=$false)]$LDAPGroupList,
-        [parameter(mandatory=$false)]$LDAPMemberList
-    )
-    $membershipMap = @()
-    foreach ($ldapGroup in $LDAPGroupList) {
-        $LDAPMemberModifyList = $LDAPMemberList
-        if ($LDAPMemberList -eq '*') {
-            $filter = "(&(memberof=$($ldapGroup.DistinguishedName)))"
-            $LDAPMemberModifyList = Invoke-LDAPQuery -Filter $filter
-        }
-        foreach ($ldapMember in $LDAPMemberModifyList) {
-            $membershipMap += [PSCustomObject]@{
-                Group = $ldapGroup
-                Member = $ldapMember
-                Name = "$($ldapGroup.canonicalname) - $($ldapMember.canonicalname)"
-            }
-        }
-    }
-    $membershipMap
-}
-
-function Select-LDAPGroupMemberModificationTarget
-{
-    param(
-        [parameter(mandatory=$false)]$LDAPGroupList,
-        [parameter(mandatory=$false)]$LDAPMemberList,
-        [parameter(mandatory=$True)]
-        [ValidateSet('Add','Remove')]$Operation,
-        [parameter(mandatory=$false)]$Instructions
-    )
-
-    if ($Operation -eq 'Add') {
-        $operationDescription = "About to add group members:"
-        $direction = 'to'
-    } elseif ($Operation -eq 'Remove') {
-        $operationDescription = "About to remove group members:"
-        $direction = 'from'
-    }
-
-    $membershipMap = Get-MembershipMap -LDAPGroupList $LDAPGroupList -LDAPMemberList $LDAPMemberList
-    if ($Operation -eq 'Remove' -and -not $membershipMap) {
-        Write-Host "There's no members in the passed groups to remove."
-        return
-    }
-    $topLength = ($ldapMemberList.canonicalname | Measure-Object -Maximum -Property Length).Maximum
-    $apply = $false
-    while ($apply -eq $false) {
-        Write-Host "$OperationDescription`n" -ForegroundColor Yellow
-        foreach ($entry in $membershipMap) {
-            $member = "'$($entry.Member.canonicalname)'"
-            $member = $member.PadRight($topLength + 2) # The 2 is the ' surrounding $member
-            $group = "'$($entry.Group.canonicalname)'"
-            Write-Host "    $member $direction $group" -ForegroundColor Green
-        }
-        Write-Host "`n$Instructions" -ForegroundColor Yellow
-        $answer = Select-LDAPObject -ObjectList $membershipMap -DisplayProperty Name
-        if ($answer -eq 'Apply') {
-            $apply = $true
-        } else {
-            $membershipMap = $answer
-        }
-        if ($membershipMap.Count -eq 0) {
-            $apply = $true
-        }
-    }
-    return $membershipMap
-}
-
-function Search-LDAPAndModifyGroupMember
-{
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
-        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
-        [Parameter(Mandatory=$false)][Switch]$NoConfirmation,
-        [Parameter(Mandatory=$true)]
-        [ValidateSet('Add', 'Remove')]
-        [String]$Operation
-    )
-
-    $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-    if ($PSVersionTable.OS -and  $PSVersionTable.OS -notmatch 'Windows') {
-        $instructions = '[A]pply, Esc to cancel'
-    }
-
-    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTermGroup -ObjectClass Group
-    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
-    }
-
-    if ($Operation -eq 'Remove' -and $SearchTermMember -eq '*') {
-        $ldapMemberList = '*'
-    } else {
-        $ldapMemberList = Search-LDAP -SearchTerm $SearchTermMember
-    }
-
-    if ($ldapGroupList.Count -gt 0 -and $ldapMemberList.Count -gt 0) {
-        if (-not $NoConfirmation.IsPresent) {
-            $modifyMap = Select-LDAPGroupMemberModificationTarget `
-                -LDAPGroupList $ldapGroupList `
-                -LDAPMemberList $ldapMemberList `
-                -Operation $Operation `
-                -Instructions $instructions
-        } else {
-            $modifyMap = Get-MembershipMap `
-                -LDAPGroupList $LDAPGroupList `
-                -LDAPMemberList $LDAPMemberList
-        }
-        # NOTE Since group member lists are cached there's always a 
-        #      possibility something else modifies it while this 
-        #      function is doing the same
-        $memberCache = @{}
-        Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
-        $failures = 0
-        foreach ($modifyEntry in $modifyMap) {
-            $groupDN = $modifyEntry.Group.DistinguishedName
-            $memberDN = $modifyEntry.Member.DistinguishedName
-            $groupCanName = $modifyEntry.Group.canonicalname
-            $groupMemName = $modifyEntry.Member.canonicalname
-            if (-not ($memberCache.Keys -contains $groupDN)) {
-                $memberFilter = "(&(memberof=$groupDN))"
-                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
-                    -AttributeList 'distinguishedname'))
-            }
-            try {
-                if ($Operation -eq 'Add') {
-                    if ($memberCache[$groupDN] -contains $modifyEntry.Member.distinguishedname) {
-                        $msg = "'$groupCanName' already contains '$groupMemName'"
-                        Write-Log -Message $msg -NoEcho
-                    } else {
-                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
-                            -Values $memberDN -ErrorAction Stop
-                        $msg = "'$groupCanName' member '$groupMemName' added"
-                        Write-Log -Message $msg -NoEcho
-                    }
-                }
-                if ($Operation -eq 'Remove') {
-                    if ($memberCache[$groupDN] -notcontains $modifyEntry.Member.distinguishedname) {
-                        $msg = "'$groupCanName' does not contain '$groupMemName'"
-                        Write-Log -Message $msg -NoEcho
-                    } else {
-                        Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
-                            -Values $memberDN -ErrorAction Stop
-                        $msg = "'$groupCanName' member '$groupMemName' removed"
-                        Write-Log -Message $msg -NoEcho
-                    }
-                }
-                Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
-            } catch {
-                $err = $_.ToString()
-                if ($Operation -eq 'Add') {
-                    $msg = "Error adding '$groupCanName' member '$groupMemName': $err"
-                } elseif ($Operation -eq 'Remove') {
-                    $msg = "Error removing '$groupCanName' member '$groupMemName': $err"
-                }
-                Write-Log -Message $msg -Level Error -NoEcho
-                Write-Host '.' -NoNewline -ForegroundColor $rageMessageColor
-                $failures++
-            }                
-        }
-        $color = $happyMessageColor
-        if ($failure -gt 0) {
-            $color = $rageMessageColor
-        }
-        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $logFileFullName for details." `
-            -ForegroundColor $color
-    } else {
-        if ($Operation -eq 'Add') {
-            if ($ldapGroupList.Count -gt 0) {
-                Write-Host "Found no members to add."
-            } else {
-                Write-Host "Found no groups to add members to."
-            }
-        } elseif ($Operation -eq 'Remove') {
-            if ($ldapGroupList.Count -gt 0) {
-                Write-Host "Found no members to remove."
-            } else {
-                Write-Host "Found no groups to remove members from."
-            }
-        }
-    }
-}
-
 function Search-LDAPAndAddGroupMember
 {
     Param(
@@ -1706,40 +1896,6 @@ function Search-LDAPAndAddGroupMember
             -SearchTermGroup $SearchTermGroup `
             -SearchTermMember $SearchTermMember `
             -Operation Add `
-            -NoConfirmation
-    }
-}
-
-function Search-LDAPAndRemoveGroupMember
-{
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
-        [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
-        [Parameter(Mandatory=$false)][Switch]$NoConfirmation
-    )
-
-    if (-not $SearchTermGroup -or -not $SearchTermMember) {
-        $description = "Finds groups and objects to attempt to remove from said groups. Passing '*' as SearchTermMember offers to remove all current members of a group. Allows user to pick which objects to add to which groups via an interactive menu."
-        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
-            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
-        $sTMInfo = "Terms to find objects to add to groups, use * to remove all members"
-        [OrderedDictionary]$parameters = @{}
-        $parameters['SearchTermGroup'] = "Terms to find groups"
-        $parameters['SearchTermMember'] = $sTMInfo
-        $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
-        Write-Help -Description $description -Usage $usage -Parameter $parameters
-        return
-    }
-    if (-not $NoConfirmation.IsPresent) {
-        Search-LDAPAndModifyGroupMember `
-            -SearchTermGroup $SearchTermGroup `
-            -SearchTermMember $SearchTermMember `
-            -Operation Remove
-    } else {
-        Search-LDAPAndModifyGroupMember `
-            -SearchTermGroup $SearchTermGroup `
-            -SearchTermMember $SearchTermMember `
-            -Operation Remove `
             -NoConfirmation
     }
 }
@@ -1826,47 +1982,6 @@ function Search-LDAPGroupAndGetMembersRecursive
     }
 }
 
-function Get-LDAPGroupMember
-{
-    Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTerm
-    )
-    $ldapGroupFilters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass Group
-    $ldapGroupList = foreach ($filter in $ldapGroupFilters) {
-        Invoke-LDAPQuery -Filter $filter.Filter -SearchBase $filter.SearchBase
-    }
-    foreach ($ldapGroup in $ldapGroupList) {
-        foreach ($memberDN in $ldapGroup.member) {
-            Invoke-LDAPQuery -Filter "(&(distinguishedname=$memberDN))"
-        }
-    }
-}
-
-function Get-RandomString
-{
-    Param(
-        [Parameter(Mandatory=$false)][Int]$Length = 16
-    )
-    # Basic idea largely stolen from:
-    # https://devblogs.microsoft.com/scripting/generate-random-letters-with-powershell/
-    $letterRange = (65..90) + (97..122)
-    $specialCharacters = '!@#$%^&*()_+=-<>/\' -split '' | Where-Object { $_ }
-    $charArray = 1..$Length | ForEach-Object {
-        switch (Get-Random -Maximum 3) {
-            0 {
-                [char]($letterRange | Get-Random)
-            }
-            1 {
-                $specialCharacters | Get-Random
-            }
-            2 {
-                Get-Random -Maximum 9
-            }
-        }
-    }
-    $charArray -join ''
-}
-
 function Search-LDAPAndResetPassword
 {
     Param(
@@ -1910,6 +2025,7 @@ function Search-LDAPAndResetPassword
         Write-Host "Could not find objects to modify."
         return
     }
+
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         try {
@@ -2200,6 +2316,9 @@ function Search-LDAPAndEnable
         -ForegroundColor $color
 }
 
+# //EXPORTED FUNCTIONS
+
+Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
 Set-Alias -Name LDAPSet -Value Search-LDAPAndSetAttributeValue
@@ -2208,11 +2327,9 @@ Set-Alias -Name LDAPRem -Value Search-LDAPAndRemoveAttributeValue
 Set-Alias -Name LDAPClr -Value Search-LDAPAndClearAttribute
 Set-Alias -Name LDAPAddMember -Value Search-LDAPAndAddGroupMember
 Set-Alias -Name LDAPRemMember -Value Search-LDAPAndRemoveGroupMember
-Set-Alias -Name LDAPAddObj -Value Add-LDAPObject
-Set-Alias -Name LDAPRemObj -Value Search-LDAPAndRemove
-Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
-Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGetMemberRecursive -Value Search-LDAPGroupAndGetMembersRecursive
+Set-Alias -Name LDAPSetPass -Value Search-LDAPAndResetPassword
+Set-Alias -Name LDAPRemObj -Value Search-LDAPAndRemove
 Set-Alias -Name LDAPMove -Value Search-LDAPAndMove
 Set-Alias -Name LDAPDisable -Value Search-LDAPAndDisable
 Set-Alias -Name LDAPEnable -Value Search-LDAPAndEnable
