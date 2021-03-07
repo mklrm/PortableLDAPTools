@@ -265,6 +265,14 @@ function Get-LDAPLogFileList
 
 function New-LDAPConnectionConfiguration
 {
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    } else {
+        $config = [PSCustomObject]@{
+            ActiveConfigurationName = $null
+            ConfigurationList = @()
+        }
+    }
     Write-Host "Please enter..." -ForegroundColor Green
     Write-Host "Configuration name is used to pick between different configurations on the same computer."
     $configName = Read-Host -Prompt "Configuration name"
@@ -319,6 +327,10 @@ function New-LDAPConnectionConfiguration
     $newConfig = Edit-LDAPConnectionConfiguration -Configuration $newConfig
 
     if ($newConfig) {
+        if ($config.ConfigurationList.configName -contains $newConfig.configName) {
+            $config.ConfigurationList = $config.ConfigurationList | `
+                Where-Object { $_.configName -ne $newConfig.configName }
+        }
         $config.ConfigurationList += $newConfig
         $hideKeysStrokes = $true
         Write-Host "Load the configuration [Y/N]?" -ForegroundColor Yellow
@@ -357,25 +369,7 @@ function New-LDAPConnectionConfiguration
                 Write-Host "I'll take that as a [N]o."
             }
         }
-        if ($config.ConfigurationList.configName -contains $configName) {
-            Write-Host "Configuration $configName already exists, overwrite [Y/N]?" `
-                -ForegroundColor $attentionMessageColor
-            $key = ([Console]::ReadKey($hideKeysStrokes)).Key
-            switch ($key) {
-                Y {
-                    $config | Export-Clixml -Path $configFile -Force
-                    Write-Host "Configuration saved."
-                }
-                N {
-                    Write-Host "You picked [N]o."
-                }
-                Default {
-                    Write-Host "I'll take that as a [N]o."
-                }
-            }
-        } else {
-            $config | Export-Clixml -Path $configFile -Force
-        }
+        $config | Export-Clixml -Path $configFile -Force
     }
 }
 
@@ -384,6 +378,11 @@ function Edit-LDAPConnectionConfiguration
     Param(
         [Parameter(Mandatory=$true)][PSCustomObject]$Configuration
     )
+
+    if (Test-Path -Path $configFile) {
+        $config = Import-Clixml -Path $configFile
+    }
+
     while ($true) {
         $msg = "1..Configuration name : $($Configuration.configName)`n" + `
                "2....LDAP server name : $($Configuration.ldapServerName)`n" + `
@@ -437,11 +436,29 @@ function Edit-LDAPConnectionConfiguration
                 $Configuration.pageSize = Read-Host -Prompt "New value"
             }
             A {
+                if ($config.ConfigurationList.configName -contains $configName) {
+                    Write-Host "Configuration named $configName already exists, overwrite [Y/N]?" `
+                        -ForegroundColor $attentionMessageColor
+                    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+                    switch ($key) {
+                        Y {
+                            Write-Host "Overwriting previous configuration $configName."
+                        }
+                        N {
+                            Write-Host "Discarding new configuration."
+                            return $null
+                        }
+                        Default {
+                            Write-Host "Discarding new configuration."
+                            return $null
+                        }
+                    }
+                }
                 Write-Host "[A]pplying settings"
                 return $Configuration
             }
             Escape {
-                Write-Host "Discarding"
+                Write-Host "Discarding new configuration."
                 return $null
             }
         }
@@ -988,12 +1005,9 @@ function Get-LDAPAttributeValueQueryFilter
         
         # This is a *,OU=something,OU=to,OU=path,DC=contoso,DC=com type search
         
-        # TODO Add support for multiple DistinguishedName SearchAttributes with wildcards. This will 
-        #      require making returning a list of filters instead of just one.
-        
         $leaf = $AttributeValue -split ',' | Select-Object -First 1
         if ($leaf -notmatch '=') {
-            $search = "CN=$leaf" # TODO could look for at least OU too in addition to CN
+            $search = "(CN=$leaf)(OU=$leaf)"
         } else {
             $search = $leaf
         }
@@ -1031,7 +1045,7 @@ function Get-LDAPAttributeValueQueryFilter
             }
         }
 
-        $filter = "(&($search)"
+        $filter = "(|($search)"
     } else {
         $filter += "(|"
         foreach ($sAttr in $SearchAttribute) {
@@ -1859,14 +1873,6 @@ function Search-LDAPAndResetPassword
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
         [Parameter(Mandatory=$false)][SecureString]$NewPassword
     )
-    
-    # TODO Maybe let user to input one password and have 
-    # randomly generated ones be protected by that. Save 
-    # them in a zip file with a password on it or something. 
-    # AND then don't echo the password...
-    # AND when you do, maybe do this instead of 'objname pass set to <password>':
-    # Account: Domain\Account
-    # Password: <password>
     
     if (-not $SearchTerm) {
         $description = "Looks for objects by search terms and changes their passwords."
