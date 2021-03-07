@@ -4,9 +4,6 @@
 # NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
 # version of .Net Core so you'll be needing a recent version of powershell on Linux.
 
-# TODO There's a lot of repetition again particularly between the functions that modify objects, 
-#      might want to try and centralize all of that as much as possible
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -86,6 +83,8 @@ if ($psVersionMajor -le 5) {
     [System.Reflection.Assembly]::LoadWithPartialName("System.Security.Principal")
 }
 
+$dateTimeStringFormat = 'yyyy\.MM\.dd-HH\.mm\.ss'
+
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
 $configFile = "$pathMyDocuments\$scriptFileName.xml"
@@ -95,6 +94,9 @@ $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
 $logFileNameFilter = "$scriptFileName-*.log"
 $logFileFullName = "$pathMyDocuments\$logFileName"
 $logFileNameFullNameFilter = "$pathMyDocuments\$logFileNameFilter"
+
+$csvFileEncoding = 'utf8'
+$csvFileDelimiter = ';'
 
 $Script:credential = $null
 $Script:ldapServer = $null
@@ -417,9 +419,9 @@ function Invoke-LDAPConnectionConfiguration
         }
     }
 
-    $hideKeysStrokes = $true
+    $hideKeyStrokes = $true
     Write-Host "Load the configuration [Y/N]?" -ForegroundColor Yellow
-    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    $key = ([Console]::ReadKey($hideKeyStrokes)).Key
     switch ($key) {
         Y {
             $Script:ldapServerName = $Configuration.ldapServerName
@@ -472,7 +474,7 @@ function Export-LDAPConnectionConfiguration
 
     Write-Host "Set the configuration as active (meaning it's loaded when the module is imported) [Y/N]?" `
         -Foregroundcolor Yellow
-    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    $key = ([Console]::ReadKey($hideKeyStrokes)).Key
     switch ($key) {
         Y {
             $config.ActiveConfigurationName = $newConfig.configName
@@ -959,8 +961,8 @@ function Select-LDAPObject
         [Parameter(Mandatory=$false)][String]$DisplayProperty = 'canonicalname'
     )
     while ($true) {
-        $hideKeysStrokes = $true
-        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        $hideKeyStrokes = $true
+        $key = ([Console]::ReadKey($hideKeyStrokes)).Key
         $confirmMessage = 'You picked '
         switch ($key) {
             A {
@@ -1405,8 +1407,8 @@ function Edit-LDAPConnectionConfiguration
         Write-Host $msg 
         Write-Host "`nPick a number to modify a setting`n"
         Write-Host "[A]pply, Esc to cancel`n"
-        $hideKeysStrokes = $true
-        $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+        $hideKeyStrokes = $true
+        $key = ([Console]::ReadKey($hideKeyStrokes)).Key
         switch ($key) {
             D1 {
                 Write-Host "Enter new value for configuration name"
@@ -1449,7 +1451,7 @@ function Edit-LDAPConnectionConfiguration
                 if ($config.ConfigurationList.configName -contains $configName) {
                     Write-Host "About to replace and existing configuration, overwrite [Y/N]?" `
                         -ForegroundColor $attentionMessageColor
-                    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+                    $key = ([Console]::ReadKey($hideKeyStrokes)).Key
                     switch ($key) {
                         Y {
                             Write-Host "Overwriting previous configuration." -ForegroundColor $happyMessageColor
@@ -2014,6 +2016,7 @@ function Search-LDAPAndResetPassword
     }
 
     if ($NewPassword) {
+        $newClearPass = $NewPassword
         [byte[]]$NewPassword = ConvertTo-LDAPPassword $NewPassword
     }
 
@@ -2025,29 +2028,67 @@ function Search-LDAPAndResetPassword
         return
     }
 
+    $attributeList = 'mail,sAMAccountName,Password' -split ','
+    $failures = 0
+    $resultList = @()
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         try {
             if ($NewPassword) {
                 $newPass = $NewPassword
             } else {
-                $newRandomPassword = Get-RandomString
+                $newClearPass = Get-RandomString
                 [byte[]]$newPass = ConvertTo-LDAPPassword `
-                    -Password ($newRandomPassword | ConvertTo-SecureString -AsPlainText)
+                    -Password ($newClearPass | ConvertTo-SecureString -AsPlainText)
             }
             Set-LDAPObject -DistinguishedName $ldapObject.DistinguishedName -Operation Replace `
                 -AttributeName 'unicodePwd' -Values $newPass -ErrorAction Stop
-            $msg = "'$objName' password set"
-            if (-not $NewPassword) {
-                $msg = "$msg to $newRandomPassword"
-            }
-            Write-Host $msg
+            $resultList += $ldapObject | Add-Member -MemberType NoteProperty Password $newClearPass -PassThru | `
+                Select-Object $attributeList
+            Write-Host '.' -NoNewLine -ForegroundColor $happyMessageColor
             $msg = "'$objName' password set"
             Write-Log -Message $msg -NoEcho
         } catch {
+            Write-Host '.' -NoNewLine -ForegroundColor $rageMessageColor
             $err = $_.ToString()
             $msg = "Error setting '$objName' password: $err"
-            Write-Log -Message $msg -Level Error
+            Write-Log -Message $msg  -NoEcho-Level Error
+            $failures++
+        }
+    }
+    $color = $happyMessageColor
+    if ($failure -gt 0) {
+        $color = $rageMessageColor
+    }
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+        -ForegroundColor $color
+    
+    $resultFile = ".\NewPasswordList-$(Get-Date -Format $dateTimeStringFormat).csv"
+    $msg = "`nWould you like to [W]rite the new passwords to $resultFile or [P]rint them to command line?`n"
+    Write-Host $msg -ForegroundColor $attentionMessageColor
+    $hideKeyStrokes = $true
+    while ($true) {
+        $key = ([Console]::ReadKey($hideKeyStrokes)).Key
+        switch ($key) {
+            W {
+                try {
+                    $resultList | Export-Csv -Path $resultFile -Delimiter $csvFileDelimiter `
+                        -Encoding $csvFileEncoding -NoTypeInformation -ErrorAction Stop
+                    Write-Host "File $resultFile written." -ForegroundColor $happyMessageColor
+                } catch {
+                    Write-Host "Error writing $($resultFile): $($_.ToString())" `
+                        -ForegroundColor $rageMessageColor
+                }
+                return
+            }
+            P {
+                foreach ($result in $resultList) {
+                    Write-Host "Email: $($result.mail)"
+                    Write-Host "Account: $($result.sAMAccountName)"
+                    Write-Host "Password: $($result.Password)`n"
+                }
+                return
+            }
         }
     }
 }
@@ -2164,8 +2205,8 @@ function Search-LDAPAndMove
         -ForegroundColor $warningMessageColor
     Write-Host "[A]pply or [C]ancel?" -ForegroundColor $happyMessageColor
 
-    $hideKeysStrokes = $true
-    $key = ([Console]::ReadKey($hideKeysStrokes)).Key
+    $hideKeyStrokes = $true
+    $key = ([Console]::ReadKey($hideKeyStrokes)).Key
     switch ($key) {
         A {
             Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
