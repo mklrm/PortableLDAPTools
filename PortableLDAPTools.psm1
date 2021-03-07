@@ -1567,7 +1567,7 @@ function Search-LDAPAndAddAttributeValue
         return
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
-        -Title "About to add attribute '$Attribute' to '$Value' on the following objects:"
+        -Title "About to add value '$Value' to attribute '$Attribute' on the following objects:"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
@@ -1629,7 +1629,7 @@ function Search-LDAPAndRemoveAttributeValue
         return
     }
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
-        -Title "About to remove value '$Value' attribute '$Attribute' the following objects:"
+        -Title "About to remove value '$Value' from attribute '$Attribute' on the following objects:"
     Write-Host "Working" -NoNewLine -ForegroundColor $happyMessageColor
     $failures = 0
     foreach ($ldapObject in $ldapObjectList) {
