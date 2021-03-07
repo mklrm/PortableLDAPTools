@@ -867,7 +867,7 @@ function Select-LDAPTargetObject
         foreach ($ldapObject in $LDAPObjectList) {
             Write-Host "`t$($ldapObject.canonicalname)" -ForegroundColor Green
         }
-        if ($PSVersionTable.OS -match 'Windows' -or $psVersionMajor -le 5) {
+        if ($newMenuLoaded) {
             $footer ='[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
         } else {
             $footer ='[A]pply, Esc to cancel'
@@ -969,7 +969,7 @@ function Search-LDAPAndModifyGroupMember
     )
 
     $instructions = '[A]pply, [S]elect objects, [D]eselect objects, Esc to cancel'
-    if ($PSVersionTable.OS -and  $PSVersionTable.OS -notmatch 'Windows') {
+    if (-not $newMenuLoaded) {
         $instructions = '[A]pply, Esc to cancel'
     }
 
