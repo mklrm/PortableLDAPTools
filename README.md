@@ -133,12 +133,12 @@ Lists group members recursively, so a command like:
 
 Will write something like:
 
-group1 > member1
-group1 > member2
-group1 > group2
-group1 > group2 > member3
-group1 > group2 > group3
-group1 > group2 > group3 > member4
+    group1 > member1
+    group1 > member2
+    group1 > group2
+    group1 > group2 > member3
+    group1 > group2 > group3
+    group1 > group2 > group3 > member4
 
 ...and so on and so forth. Still comtemplating what a more useful output would be.
 

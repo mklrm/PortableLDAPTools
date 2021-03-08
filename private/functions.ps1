@@ -1,6 +1,8 @@
 
 # NOTE The below enumeration is on loan from:
 # http://www.digipine.com/index.php?mid=windowsmfc&document_srl=208
+# Modified a little bit to match:
+# https://docs.microsoft.com/en-US/troubleshoot/windows-server/identity/useraccountcontrol-manipulate-account-properties
 
 # Usage, for example:
 # [AdsUserFlags]530
@@ -30,7 +32,7 @@ Enum AdsUserFlags
     DontRequirePreauth = 4194304 # 0x400000
     PasswordExpired = 8388608 # 0x800000
     TrustedToAuthenticateForDelegation = 16777216 # 0x1000000
-    NoAuthDataRequired = 33554432 # 0x2000000
+    PartialSecretsAccount = 67108864 # 0x04000000
 }
 
 $adsUserFlagsMap = @{
