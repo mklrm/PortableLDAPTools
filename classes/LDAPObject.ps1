@@ -12,7 +12,7 @@ Class LDAPObject
 {
     [String] $CanonicalName
     [String] $cn
-    [String] $distinguishedname
+    [String] $DistinguishedName
     [DateTime[]] $DsCorePropagationData
     [Int] $instancetype
     [String] $Name
@@ -23,13 +23,13 @@ Class LDAPObject
     [Int] $usncreated
     [DateTime] $WhenChanged
     [DateTime] $WhenCreated
-    [PSCustomObject[]] $attributes
+    [PSCustomObject] $Attributes
 
     LDAPObject([PSCustomObject[]] $AttributeObject)
     {
         $unhandledAttributeList = @()
         $attributeList = ($AttributeObject | Get-Member -MemberType NoteProperty).Name
-
+        
         $skipAutomaticConversionList = 'dscorepropagationdata', 'whenchanged', 'whencreated'
 
         foreach ($attributeName in $attributeList) {
@@ -68,7 +68,16 @@ Class LDAPObject
         }
         
         if ($unhandledAttributeList.count -gt 0) {
-            $this.attributes = $AttributeObject | Select-Object -Property $unhandledAttributeList
+            $this.Attributes = $AttributeObject | Select-Object -Property $unhandledAttributeList
+        }
+
+        if ($this.useraccountcontrol) {
+            $userAccountControlFlagList = ConvertFrom-UserAccountControlInteger `
+                -UserAccountControlInteger $this.useraccountcontrol
+            foreach ($userAccountControlFlag in $userAccountControlFlagList) {
+                $this.Attributes | Add-Member -MemberType NoteProperty `
+                    -Name $userAccountControlFlag -Value $true -Force
+            }
         }
     }
 
@@ -99,10 +108,15 @@ Class LDAPGroup : LDAPObject
 Class LDAPAuthenticatedObject : LDAPObject
 {
     [String] $sAMAccountName
+    [Boolean] $AccountDisabled
     [String] $Description
     [String[]] $MemberOf
-    [Int64] $accountexpires # TODO Change to a date
-    [Boolean] $iscriticalsystemobject
+    [Boolean] $AccountLockedOut
+    [Boolean] $PasswordNotRequired
+    [Boolean] $PasswordCannotChange
+    [Boolean] $PasswordDoesNotExpire
+    [Boolean] $PasswordExpired
+    [Int64] $AccountExpires # TODO Change to a date
     [DateTime] $LastLogonDate
     [DateTime] $LastLogonTimestampDate
     [DateTime] $PasswordLastSet
@@ -110,14 +124,23 @@ Class LDAPAuthenticatedObject : LDAPObject
     [Int] $BadPasswordCount
     [Int] $LogonCount
     [SecurityIdentifier] $ObjectSid
-    [Int] $primarygroupid
-    [Int] $samaccounttype
-    [Int] $useraccountcontrol
-    [Int] $codepage
-    [Int] $countrycode
+    [Int] $PrimaryGroupId
+    [Int] $sAMCccountType
+    [Int] $UserAccountControl
+    [Int] $Codepage
+    [Int] $CountryCode
 
     LDAPAuthenticatedObject([PSCustomObject[]] $AttributeObject) : base($AttributeObject)
     {
+        if ($AttributeObject.useraccountcontrol) {
+            $userAccountControlFlagList = ConvertFrom-UserAccountControlInteger `
+                -UserAccountControlInteger $AttributeObject.useraccountcontrol
+            foreach ($userAccountControlFlag in $userAccountControlFlagList) {
+                if ($this.$userAccountControlFlag) {
+                    $this.$UserAccountControlFlag = $true
+                }
+            }
+        }
         if ($AttributeObject.lastlogon) {
             $this.LastLogonDate = [DateTime]::FromFileTime($AttributeObject.lastlogon)
         }

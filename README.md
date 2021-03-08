@@ -12,7 +12,7 @@ The user is always asked to confirm whether to apply the requested changes to th
 
 So it's designed for interactive use and not for being used in scripts. I am aware I'm doing some things here in a very non-powershell way.
 
-Automatically logs changes to a file and announces where to find it after each command. In My Documents on Windows and your home directory on Linux (I should add a subdir soonish actually...).
+Automatically logs changes to a file (under a subdirectory in My Documents on Windows or the home directory on Linux) and announces where to find it after each command.
 
 ## Installation
 
@@ -33,7 +33,9 @@ I wouldn't go installing either one quite yet even if it is possible (which I do
 
 ## Setup
 
-Automatically asks for things like server name and port, username, password (as a secure string so it should fairly well protected but you're allowed to skip this) and saves them to a config file.
+Automatically asks for things like server name and port, username and password* and saves them to a config file when one of the commands is invoked.
+
+*as a secure string so it should be relatively well protected. The password can be decrypted by the account that encrypted it on the machine it was encrypted on without passing any sort of secret but should not be able to be cracked within a timeframe that matters at least if you make a habit of changing your passwords regularly.
 
 Allows multiple connection configurations to be stored.
 

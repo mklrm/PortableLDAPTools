@@ -28,13 +28,14 @@ $dateTimeStringFormat = 'yyyy\.MM\.dd-HH\.mm\.ss'
 
 $scriptFileName = ($PSCommandPath | Split-Path -Leaf) -replace '\..*$'
 $pathMyDocuments = [environment]::GetFolderPath('MyDocuments')
-$configFile = "$pathMyDocuments\$scriptFileName.xml"
+$pathScriptFiles = "$pathMyDocuments\$scriptFileName"
+$configFile = "$pathScriptFiles\$scriptFileName.xml"
 
 $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
 $logFileNameFilter = "$scriptFileName-*.log"
-$logFileFullName = "$pathMyDocuments\$logFileName"
-$logFileNameFullNameFilter = "$pathMyDocuments\$logFileNameFilter"
+$logFileFullName = "$pathScriptFiles\$logFileName"
+$logFileNameFullNameFilter = "$pathScriptFiles\$logFileNameFilter"
 
 $csvFileEncoding = 'utf8'
 $csvFileDelimiter = ';'
@@ -78,7 +79,7 @@ function Write-Log
         [Parameter(Mandatory=$false)][Switch]$NoEcho
     )
     $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
-    $logFileFullName = "$pathMyDocuments\$logFileName"
+    $logFileFullName = "$pathScriptFiles\$logFileName"
     $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
     switch ($Level) {
         'Informational' {
@@ -223,13 +224,14 @@ function Convert-SearchResultAttributeCollection
             }
 
         if ($psVersionMajor -ge 5) {
-            if ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassUser) {
+            $objectClass = ($attributeObject.objectclass | Sort-Object) -join ','
+            if ($objectClass -eq $objectClassUser) {
                 New-Object -TypeName LDAPUser -ArgumentList $attributeObject
-            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassComputer) {
+            } elseif ($objectClass -eq $objectClassComputer) {
                 New-Object -TypeName LDAPComputer -ArgumentList $attributeObject
-            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassGroup) {
+            } elseif ($objectClass -eq $objectClassGroup) {
                 New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
-            } elseif ((($attributeObject.objectclass | Sort-Object) -join ',') -eq $objectClassOrganizationalUnit) {
+            } elseif ($objectClass -eq $objectClassOrganizationalUnit) {
                 New-Object -TypeName LDAPObject -ArgumentList $attributeObject
             } else {
                 $attributeObject
@@ -507,7 +509,7 @@ function Invoke-LDAPQuery
     # NOTE Search paging explained here:
     # https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/bb332056(v=msdn.10)?redirectedfrom=MSDN#search-operations
 
-    $searchRequest = New-Object -TypeName SearchRequest -ArgumentList $null, $Filter, $Scope, $attributeList
+    $searchRequest = New-Object -TypeName SearchRequest -ArgumentList $null, $Filter, $Scope, $AttributeList
     if ($null -ne $SearchBase) {
         $searchRequest.DistinguishedName = $SearchBase
     }
@@ -2013,13 +2015,15 @@ function Search-LDAPAndMove
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to move the following object(s):"
     
+    #return (Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))')
+    
     if (-not $TargetPath) {
         if ($newMenuLoaded) {
-            $TargetPath = New-Menu -InputObject `
-                ((Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))') | Sort-Object CanonicalName) `
-                -DisplayProperty CanonicalName -Mode Default -Title `
-                'Use enter to select an organizational unit to move objects ',
-                'to it, arrow keys and pgup/pgdn to move. Use slash (/) to search.'
+            $ouList = Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))'
+            $title = 'Use enter to select an organizational unit to move objects ',
+                     'to it, arrow keys and pgup/pgdn to move. Use slash (/) to search.'
+            [LDAPObject] $TargetPath = New-Menu -InputObject $ouList -DisplayProperty CanonicalName `
+                                        -Title $title
             if (-not $TargetPath) {
                 Write-Host "You didn't pick an organizational unit to move selected objects to." `
                     -ForegroundColor $disappointedMessageColor
