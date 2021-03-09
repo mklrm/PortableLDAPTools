@@ -87,6 +87,16 @@ or
 
     LDAPGetBy DistinguishedName '*,CN=Users,DC=contoso,DC=com'
 
+### LDAPGetClass
+
+Get all organizationl units in contoso.com:
+
+    LDAPGetClass contoso.com/* OrganizationlUnit
+
+Get all organizationl units named Finland in contoso.com:
+
+    LDAPGetClass Finland OrganizationalUnit
+
 ### LDAPSet
 
 Used to set object attribute values by doing something like the following:

@@ -12,6 +12,7 @@ $objectClassUser = 'organizationalPerson,person,top,user'
 $objectClassComputer = 'computer,organizationalPerson,person,top,user'
 $objectClassGroup = 'group,top'
 $objectClassOrganizationalUnit = 'organizationalUnit,top'
+$objectClassContainer = 'container,top'
 
 $canonicalNamePattern = '^([\w]{1,}\.{1}[\w]{1,}){1,}/'
 $distinguishedNamePattern = ',DC=.*?$'
@@ -239,6 +240,8 @@ function Convert-SearchResultAttributeCollection
             } elseif ($objectClass -eq $objectClassGroup) {
                 New-Object -TypeName LDAPGroup -ArgumentList $attributeObject
             } elseif ($objectClass -eq $objectClassOrganizationalUnit) {
+                New-Object -TypeName LDAPObject -ArgumentList $attributeObject
+            } elseif ($objectClass -eq $objectClassContainer) {
                 New-Object -TypeName LDAPObject -ArgumentList $attributeObject
             } else {
                 $attributeObject
@@ -661,6 +664,7 @@ function Get-LDAPAttributeValueQueryFilter
         } else {
             $search = $leaf
         }
+
         $searchBase = $AttributeValue[0] -replace ("^$leaf," -replace '\*','\*')
         # All parent nodes in canonical name path such as contoso.com/computers/* when converted to 
         # distinguished name default to OU=computers. Computers for example is a container which in 
@@ -695,7 +699,7 @@ function Get-LDAPAttributeValueQueryFilter
             }
         }
 
-        $filter = "(|($search)"
+        $filter += "(|($search)"
     } else {
         $filter += "(|"
         foreach ($sAttr in $SearchAttribute) {
@@ -1409,15 +1413,20 @@ function Search-LDAP
 {
     Param(
         [Parameter(Mandatory=$false)][String[]]$SearchTerm,
-        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute,
+        [Parameter(Mandatory=$false)]
+        [ValidateSet('User', 'Computer', 'Group', 'OrganizationalUnit', 'Container')]
+        [String]$ObjectClass
     )
 
     if (-not $SearchTerm) {
         $description = "Looks for objects by search terms and returns either all or requested return attributes. Search is fuzzy, you pass keywords that can include '*' as wildcards and the script attempts to find objects that have those values in attributes that generally identify an object such as Name, sAMAccountName, UserPrincipalName and so forth. So keep in mind that you are not making exact searches which is why these commands first let you know what is about to be done and you then have to choose to apply the changes."
-        $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)"
+        $usage = "LDAPGet SearchTerm(s)", "LDAPGet SearchTerm(s) ReturnAttribute(s)", 
+            "LDAPGet SearchTerm(s) ReturnAttribute(s) ObjectClass"
         [OrderedDictionary]$parameters = @{}
         $parameters['SearchTerm'] = 'Term to find objects by'
         $parameters['ReturnAttribute'] = "Which attributes to return per object '*' which is the default, means any value other than null."
+        $parameters['ObjectClass'] = "Class of object to return."
         Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
     }
@@ -1425,17 +1434,31 @@ function Search-LDAP
     $result = @()
     if ($SearchTerm.Count -eq 1) {
         if ($SearchTerm -match $canonicalNamePattern -and $SearchTerm -match '\*') {
-            $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute CanonicalName `
-                -AttributeValue $SearchTerm
+            if (-not $ObjectClass) {
+                $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute CanonicalName `
+                    -AttributeValue $SearchTerm
+            } else {
+                $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute CanonicalName `
+                    -AttributeValue $SearchTerm -ObjectClass $ObjectClass
+            }
         }
         if ($SearchTerm -match $distinguishedNamePattern -and $SearchTerm -match '\*') {
-            $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute DistinguishedName `
-                -AttributeValue $SearchTerm
+            if (-not $ObjectClass) {
+                $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute DistinguishedName `
+                    -AttributeValue $SearchTerm
+            } else {
+                $filters = Get-LDAPAttributeValueQueryFilter -SearchAttribute DistinguishedName `
+                    -AttributeValue $SearchTerm -ObjectClass $ObjectClass
+            }
         }
     }
 
     if (-not $filters) {
-        $filters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm
+        if (-not $ObjectClass) {
+            $filters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm
+        } else {
+            $filters = Get-LDAPFuzzyQueryFilter -SearchTerm $SearchTerm -ObjectClass $ObjectClass
+        }
     }
 
     foreach ($filter in $filters) {
@@ -1483,6 +1506,30 @@ function Search-LDAPByAttributeValue
     } else {
         $result | Select-Object $ReturnAttribute
     }
+}
+
+function Search-LDAPByObjectClass
+{
+    Param(
+        [Parameter(Mandatory=$false)][String[]]$SearchTerm,
+        [Parameter(Mandatory=$false)]
+        [ValidateSet('User', 'Computer', 'Group', 'OrganizationalUnit', 'Container')]
+        [String]$ObjectClass = "User",
+        [Parameter(Mandatory=$false)][String[]]$ReturnAttribute
+    )
+
+    if (-not $SearchTerm -or -not $ObjectClass) {
+        $description = "Looks for objects that are of a matching class."
+        $usage = "LDAPGetClass SearchAttribute(s) ObjectClass ReturnAttribute(s)"
+        [OrderedDictionary]$parameters = @{}
+        $parameters['SearchAttribute'] = "Attributes in which to look for a value"
+        $parameters['ObjectClass'] = "Which class of object to find."
+        $parameters['ReturnAttribute'] = "Which attributes to return per object. '*' expands all."
+        Write-Help -Description $description -Usage $usage -Parameter $parameters
+        return
+    }
+
+    Search-LDAP -SearchTerm $SearchTerm -ObjectClass $ObjectClass -ReturnAttribute $ReturnAttribute
 }
 
 function Search-LDAPAndSetAttributeValue
@@ -2234,6 +2281,7 @@ function Search-LDAPAndEnable
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
+Set-Alias -Name LDAPGetClass -Value Search-LDAPByObjectClass
 Set-Alias -Name LDAPSet -Value Search-LDAPAndSetAttributeValue
 Set-Alias -Name LDAPAdd -Value Search-LDAPAndAddAttributeValue
 Set-Alias -Name LDAPRem -Value Search-LDAPAndRemoveAttributeValue
