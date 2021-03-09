@@ -136,8 +136,10 @@ Class LDAPAuthenticatedObject : LDAPObject
             $userAccountControlFlagList = ConvertFrom-UserAccountControlInteger `
                 -UserAccountControlInteger $AttributeObject.useraccountcontrol
             foreach ($userAccountControlFlag in $userAccountControlFlagList) {
-                if ($this.$userAccountControlFlag) {
+                try {
                     $this.$UserAccountControlFlag = $true
+                } catch {
+                    # Quiet
                 }
             }
         }

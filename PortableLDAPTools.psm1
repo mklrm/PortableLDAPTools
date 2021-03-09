@@ -78,6 +78,13 @@ function Write-Log
         [String]$Level = 'Informational',
         [Parameter(Mandatory=$false)][Switch]$NoEcho
     )
+    if (-not (Test-Path -Path $pathScriptFiles)) {
+        try {
+            New-Item -Path $pathScriptFiles -ErrorAction Stop | Out-Null
+        } catch {
+            throw "Error creating directory $pathScriptFilesfor for log files: $($_.TroString())"
+        }
+    }
     $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
     $logFileFullName = "$pathScriptFiles\$logFileName"
     $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
@@ -1165,6 +1172,13 @@ function New-LDAPConnectionConfiguration
         $config = [PSCustomObject]@{
             ActiveConfigurationName = $null
             ConfigurationList = @()
+        }
+        if (-not (Test-Path -Path $pathScriptFiles)) {
+            try {
+                New-Item -Path $pathScriptFiles -ErrorAction Stop | Out-Null
+            } catch {
+                throw "Error creating directory $pathScriptFiles for configuration file: $($_.TroString())"
+            }
         }
     }
     Write-Host "Please enter..." -ForegroundColor Green
