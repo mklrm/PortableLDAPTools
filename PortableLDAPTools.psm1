@@ -35,7 +35,7 @@ $configFile = "$pathScriptFiles\$scriptFileName.xml"
 $logFileEncoding = 'utf8'
 $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
 $logFileNameFilter = "$scriptFileName-*.log"
-$logFileFullName = "$pathScriptFiles\$logFileName"
+$Script:logFileFullName = "$pathScriptFiles\$logFileName"
 $logFileNameFullNameFilter = "$pathScriptFiles\$logFileNameFilter"
 
 $csvFileEncoding = 'utf8'
@@ -50,7 +50,7 @@ if (Get-Module -Name New-Menu) {
 }
 
 if ($config.logFileFullName) {
-    $logFileFullName = $config.logFileFullName
+    $Script:logFileFullName = $config.logFileFullName
 }
 
 $confirmMessageColor = $Host.PrivateData.FormatAccentColor # NOTE Used this for now because the default is green
@@ -87,7 +87,7 @@ function Write-Log
         }
     }
     $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
-    $logFileFullName = "$pathScriptFiles\$logFileName"
+    $Script:logFileFullName = "$pathScriptFiles\$logFileName"
     $logMessage = "[$(Get-Date -Format 'yyyy.MM.dd HH\:mm\:ss')] $Message"
     switch ($Level) {
         'Informational' {
@@ -104,7 +104,7 @@ function Write-Log
             -ForegroundColor $foregroundColor `
             -BackgroundColor $backgroundColor
     }
-    $logMessage | Out-File -FilePath $logFileFullName `
+    $logMessage | Out-File -FilePath $Script:logFileFullName `
         -Encoding $logFileEncoding -Append -Force
 }
 
@@ -1065,7 +1065,7 @@ function Search-LDAPAndModifyGroupMember
         if ($failure -gt 0) {
             $color = $rageMessageColor
         }
-        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $logFileFullName for details." `
+        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $($Script:logFileFullName) for details." `
             -ForegroundColor $color
     } else {
         if ($Operation -eq 'Add') {
@@ -1598,7 +1598,7 @@ function Search-LDAPAndSetAttributeValue
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -1660,7 +1660,7 @@ function Search-LDAPAndAddAttributeValue
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -1721,7 +1721,7 @@ function Search-LDAPAndRemoveAttributeValue
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -1784,7 +1784,7 @@ function Search-LDAPAndClearAttribute
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -1969,7 +1969,7 @@ function Search-LDAPAndResetPassword
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
     
     $resultFile = ".\NewPasswordList-$(Get-Date -Format $dateTimeStringFormat).csv"
@@ -2044,7 +2044,7 @@ function Search-LDAPAndRemove
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -2075,8 +2075,6 @@ function Search-LDAPAndMove
 
     $ldapObjectList = Select-LDAPTargetObject -LDAPObjectList $ldapObjectList `
         -Title "About to move the following object(s):"
-    
-    #return (Invoke-LDAPQuery -Filter '(&(objectclass=organizationalunit))')
     
     if (-not $TargetPath) {
         if ($newMenuLoaded) {
@@ -2158,7 +2156,7 @@ function Search-LDAPAndMove
         $color = $rageMessageColor
     
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -2215,7 +2213,7 @@ function Search-LDAPAndDisable
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -2272,7 +2270,7 @@ function Search-LDAPAndEnable
     if ($failure -gt 0) {
         $color = $rageMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $logFileFullName for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
