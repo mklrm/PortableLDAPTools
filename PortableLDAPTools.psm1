@@ -95,7 +95,7 @@ function Write-Log
             $backgroundColor = $HOST.UI.RawUI.BackgroundColor
         }
         'Error' {
-            $foregroundColor = $Host.PrivateData.ErrorForegroundColor
+            $foregroundColor = $HOST.PrivateData.ErrorForegroundColor
             $backgroundColor = $HOST.PrivateData.ErrorBackgroundColor
         }
     }
@@ -1022,8 +1022,8 @@ function Search-LDAPAndModifyGroupMember
             $groupMemName = $modifyEntry.Member.canonicalname
             if (-not ($memberCache.Keys -contains $groupDN)) {
                 $memberFilter = "(&(memberof=$groupDN))"
-                $memberCache.Add($groupDN, (Invoke-LDAPQuery -Filter $memberFilter `
-                    -AttributeList 'distinguishedname'))
+                $memberCache.Add($groupDN, ((Invoke-LDAPQuery -Filter $memberFilter `
+                    -AttributeList 'DistinguishedName').DistinguishedName))
             }
             try {
                 if ($Operation -eq 'Add') {
