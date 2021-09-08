@@ -1,5 +1,6 @@
 
 using namespace System.Security.Principal
+using namespace System.DirectoryServices.Protocols
 
 if ($psVersionMajor -le 5) {
     [System.Reflection.Assembly]::LoadWithPartialName("System.Security.Principal") | Out-Null
@@ -23,14 +24,15 @@ Class LDAPObject
     [Int] $usncreated
     [DateTime] $WhenChanged
     [DateTime] $WhenCreated
-    [PSCustomObject] $Attributes
+    [PSCustomObject] $UnhandledAttributes 
 
     LDAPObject([PSCustomObject[]] $AttributeObject)
     {
         $unhandledAttributeList = @()
         $attributeList = ($AttributeObject | Get-Member -MemberType NoteProperty).Name
         
-        $skipAutomaticConversionList = 'dscorepropagationdata', 'whenchanged', 'whencreated'
+        $skipAutomaticConversionList = 'dscorepropagationdata', 'whenchanged', 'whencreated', 'memberof', 
+            'member'
 
         foreach ($attributeName in $attributeList) {
             if ($skipAutomaticConversionList -contains $attributeName) {
@@ -68,14 +70,18 @@ Class LDAPObject
         }
         
         if ($unhandledAttributeList.count -gt 0) {
-            $this.Attributes = $AttributeObject | Select-Object -Property $unhandledAttributeList
+            $this.UnhandledAttributes = ($AttributeObject | Select-Object -Property $unhandledAttributeList | `
+                Get-Member -MemberType NoteProperty).Name
+            foreach ($attributeName in $this.UnhandledAttributes) {
+                $this | Add-Member -MemberType NoteProperty -Name $attributeName -Value $AttributeObject.$attributeName
+            }
         }
 
         if ($this.useraccountcontrol) {
             $userAccountControlFlagList = ConvertFrom-UserAccountControlInteger `
                 -UserAccountControlInteger $this.useraccountcontrol
             foreach ($userAccountControlFlag in $userAccountControlFlagList) {
-                $this.Attributes | Add-Member -MemberType NoteProperty `
+                $this | Add-Member -MemberType NoteProperty `
                     -Name $userAccountControlFlag -Value $true -Force
             }
         }
@@ -87,6 +93,43 @@ Class LDAPObject
     }
 }
 
+Class LDAPMemberList
+{
+    [String[]] $DistinguishedName
+    [LDAPObject[]] $MemberList
+
+    LDAPMemberList()
+    {
+    }
+
+    [Void] AddDistinguishedName([String] $DistinguishedName)
+    {
+        $this.DistinguishedName += $DistinguishedName
+    }
+
+    [Void] UpdateLDAPObjectList()
+    {
+        foreach ($dn in $this.DistinguishedName) {
+            $splitDN = $dn -split ','
+            $leaf = $splitDN[0]
+            $filter = "(&($leaf))"
+            $searchBase = $splitDN[1..($splitDN.Count + 1)] -join ','
+            $this.MemberList += Invoke-LDAPQuery -Filter $filter -SearchBase $searchBase 
+        }
+    }
+
+    [String] ToString()
+    {
+        if ($this.MemberList.Count -lt 1) {
+            return $this.DistinguishedName
+        }
+        #if ($this.MemberList.Count -ne $this.DistinguishedName.Count) {
+        #    $this.UpdateLDAPObjectList()
+        #}
+        return $this.MemberList.CanonicalName
+    }
+}
+
 Class LDAPGroup : LDAPObject
 {
     [Int] $grouptype
@@ -94,14 +137,23 @@ Class LDAPGroup : LDAPObject
     [String] $samaccountname
     [Int] $samaccounttype
     [String] $Description
-    [String[]] $Member
-    [String[]] $MemberOf
+    [LDAPMemberList[]] $Members
+    [LDAPMemberList[]] $MemberOf
     [Int] $admincount
     [Boolean] $iscriticalsystemobject
     [Int] $systemflags
 
     LDAPGroup([PSCustomObject[]] $AttributeObject) : base ($AttributeObject)
     {
+        $this.Members = New-Object -TypeName LDAPMemberList
+        foreach ($dn in $AttributeObject.Member) {
+            $this.Members.AddDistinguishedName($dn)
+        }
+
+        $this.MemberOf = New-Object -TypeName LDAPMemberList
+        foreach ($dn in $AttributeObject.MemberOf) {
+            $this.MemberOf.AddDistinguishedName($dn)
+        }
     }
 }
 
@@ -110,7 +162,6 @@ Class LDAPAuthenticatedObject : LDAPObject
     [String] $sAMAccountName
     [Boolean] $AccountDisabled
     [String] $Description
-    [String[]] $MemberOf
     [Boolean] $AccountLockedOut
     [Boolean] $PasswordNotRequired
     [Boolean] $PasswordCannotChange
@@ -164,6 +215,7 @@ Class LDAPUser : LDAPAuthenticatedObject
     [String] $GivenName
     [String] $SurName
     [String] $UserPrincipalName
+    [LDAPMemberList[]] $MemberOf
     [String] $Mail
     [String] $Mobile
     [String] $Title
@@ -178,6 +230,11 @@ Class LDAPUser : LDAPAuthenticatedObject
     {
         if ($AttributeObject.sn) {
             $this.SurName = $AttributeObject.sn
+        }
+
+        $this.MemberOf = New-Object -TypeName LDAPMemberList
+        foreach ($dn in $AttributeObject.MemberOf) {
+            $this.MemberOf.AddDistinguishedName($dn)
         }
     }
 }
@@ -200,3 +257,4 @@ Class LDAPComputer : LDAPAuthenticatedObject
     {
     }
 }
+

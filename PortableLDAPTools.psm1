@@ -1,9 +1,6 @@
 
 # PortableLDAPTools.psm1 / Lauri Mikkola 2021
 
-# NOTE System.DirectoryServices.Protocol seems to only be included in fairly recent 
-# version of .Net Core so you'll be needing a recent version of powershell on Linux.
-
 using namespace System.DirectoryServices.Protocols
 using namespace System.Collections.Specialized
 using namespace System.Security.Principal
@@ -2275,6 +2272,8 @@ function Search-LDAPAndEnable
 }
 
 # //EXPORTED FUNCTIONS
+
+. $PSScriptRoot\classes\LDAPObject.ps1
 
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
 Set-Alias -Name LDAPGet -Value Search-LDAP

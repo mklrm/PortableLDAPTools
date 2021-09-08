@@ -59,8 +59,7 @@ Description = 'Something akin to ADUC on the command line'
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
 ScriptsToProcess = @(
-    '.\private\functions.ps1',
-    '.\classes\LDAPObject.ps1'
+    '.\private\functions.ps1'
 )
 
 # Type files (.ps1xml) to be loaded when importing this module
