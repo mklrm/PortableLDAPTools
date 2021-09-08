@@ -1012,6 +1012,7 @@ function Search-LDAPAndModifyGroupMember
         $memberCache = @{}
         Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
         $failures = 0
+        $warnings = 0
         foreach ($modifyEntry in $modifyMap) {
             $groupDN = $modifyEntry.Group.DistinguishedName
             $memberDN = $modifyEntry.Member.DistinguishedName
@@ -1025,8 +1026,9 @@ function Search-LDAPAndModifyGroupMember
             try {
                 if ($Operation -eq 'Add') {
                     if ($memberCache[$groupDN] -contains $modifyEntry.Member.distinguishedname) {
-                        $msg = "'$groupCanName' already contains '$groupMemName'"
+                        $msg = "'$groupCanName' already contains '$groupMemName' (warning)"
                         Write-Log -Message $msg -NoEcho
+                        $warnings++
                     } else {
                         Set-LDAPObject -DistinguishedName $groupDN -Operation 'Add' -AttributeName member `
                             -Values $memberDN -ErrorAction Stop
@@ -1036,8 +1038,9 @@ function Search-LDAPAndModifyGroupMember
                 }
                 if ($Operation -eq 'Remove') {
                     if ($memberCache[$groupDN] -notcontains $modifyEntry.Member.distinguishedname) {
-                        $msg = "'$groupCanName' does not contain '$groupMemName'"
+                        $msg = "'$groupCanName' does not contain '$groupMemName' (warning)"
                         Write-Log -Message $msg -NoEcho
+                        $warnings++
                     } else {
                         Set-LDAPObject -DistinguishedName $groupDN -Operation 'Delete' -AttributeName member `
                             -Values $memberDN -ErrorAction Stop
@@ -1061,8 +1064,10 @@ function Search-LDAPAndModifyGroupMember
         $color = $happyMessageColor
         if ($failure -gt 0) {
             $color = $rageMessageColor
+        } elseif ($warnings -gt 0) {
+            $color = $warningMessageColor
         }
-        Write-Host "`nDone with $failures/$($modifyMap.Count) failures. See $($Script:logFileFullName) for details." `
+        Write-Host "`nDone with $failures/$($modifyMap.Count) failures and $warnings/$($modifyMap.Count) warnings. See $($Script:logFileFullName) for details." `
             -ForegroundColor $color
     } else {
         if ($Operation -eq 'Add') {
@@ -1749,6 +1754,7 @@ function Search-LDAPAndClearAttribute
         -Title "About to remove all values from attribute '$Attribute' from the following objects:"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
+    $warnings = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $oldValue = $ldapObject.$Attribute
@@ -1768,6 +1774,7 @@ function Search-LDAPAndClearAttribute
             } else {
                 $msg = "'$objname' '$attribute' is already not set"
                 write-log -message $msg -NoEcho
+                $warnings++
             }
             Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
@@ -1780,8 +1787,10 @@ function Search-LDAPAndClearAttribute
     $color = $happyMessageColor
     if ($failure -gt 0) {
         $color = $rageMessageColor
+    } elseif ($warnings -gt 0) {
+        $color = $warningMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($modifyMap.Count) warnings. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
