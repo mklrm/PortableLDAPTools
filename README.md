@@ -125,13 +125,13 @@ Clears all values from single and multi-value attributes, such like:
 
 Perhaps one of the more useful commands, used to add members to groups:
 
-    LDAPAddMember 'Group A', 'Group B' 'John Doe', 'Doe Jane'
+    LDAPAddMember 'John Doe', 'Doe Jane' 'Group A', 'Group B'
 
 ### LDAPRemMember
 
 Works similarly to LDAPAddMember but you can also do...
 
-    LDAPRemMember 'Group A' *
+    LDAPRemMember * 'Group A'
 
 ...to get a list of all members in a group and choose to remove all of them from it or pick and choose which ones to remove.
 

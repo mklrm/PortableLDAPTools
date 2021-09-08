@@ -1772,7 +1772,7 @@ function Search-LDAPAndClearAttribute
                 $msg = "'$objName' '$Attribute' cleared"
                 Write-Log -Message $msg -NoEcho
             } else {
-                $msg = "'$objname' '$attribute' is already not set"
+                $msg = "'$objname' '$attribute' is already not set (warnings)"
                 write-log -message $msg -NoEcho
                 $warnings++
             }
@@ -1790,25 +1790,25 @@ function Search-LDAPAndClearAttribute
     } elseif ($warnings -gt 0) {
         $color = $warningMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($modifyMap.Count) warnings. See $($Script:logFileFullName) for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($ldapObjectList.Count) warnings. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
 function Search-LDAPAndAddGroupMember
 {
     Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
         [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
         $description = "Finds groups and objects to add as members to said groups. Allows user to pick which objects to add to which groups via an interactive menu."
-        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
-            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
+        $usage = "LDAPAddMember SearchTermMember(s) SearchTermGroup(s)", 
+            "LDAPAddMember SearchTermMember(s) SearchTermGroup(s) -NoConfirmation"
         [OrderedDictionary]$parameters = @{}
-        $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['SearchTermMember'] = "Terms to find objects to add to groups"
+        $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
         Write-Help $description -Usage $usage -Parameter $parameters
         return
@@ -1830,19 +1830,19 @@ function Search-LDAPAndAddGroupMember
 function Search-LDAPAndRemoveGroupMember
 {
     Param(
-        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
         [Parameter(Mandatory=$false)][String[]]$SearchTermMember,
+        [Parameter(Mandatory=$false)][String[]]$SearchTermGroup,
         [Parameter(Mandatory=$false)][Switch]$NoConfirmation
     )
 
     if (-not $SearchTermGroup -or -not $SearchTermMember) {
         $description = "Finds groups and objects to attempt to remove from said groups. Passing '*' as SearchTermMember offers to remove all current members of a group. Allows user to pick which objects to add to which groups via an interactive menu."
-        $usage = "LDAPAddMember SearchTermGroup(s) SearchTermMember(s)", 
-            "LDAPAddMember SearchTermGroup(s) SearchTermMember(s) -NoConfirmation"
+        $usage = "LDAPAddMember SearchTermMember(s) SearchTermGroup(s)", 
+            "LDAPAddMember SearchTermMember(s) SearchTermGroup(s) -NoConfirmation"
         $sTMInfo = "Terms to find objects to add to groups, use * to remove all members"
         [OrderedDictionary]$parameters = @{}
-        $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['SearchTermMember'] = $sTMInfo
+        $parameters['SearchTermGroup'] = "Terms to find groups"
         $parameters['NoConfirmation'] = "Command will not ask you for confirmation"
         Write-Help -Description $description -Usage $usage -Parameter $parameters
         return
@@ -2188,15 +2188,17 @@ function Search-LDAPAndDisable
         -Title "About to disable the following object(s):"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
+    $warnings = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $userAccountControlFlags = ConvertFrom-UserAccountControlInteger `
             -UserAccountControlInteger $ldapObject.UserAccountControl
         $disabled = $userAccountControlFlags -contains 'AccountDisabled'
         if ($disabled) {
-            $msg = "'$objName' is already disabled"
+            $msg = "'$objName' is already disabled (warning)"
             Write-Log -Message $msg -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor $attentionMessageColor
+            $warnings++
             continue
         } else {
             $userAccountControlNewValue = $ldapObject.UserAccountControl + $adsUserFlagsMap['AccountDisabled']
@@ -2216,10 +2218,12 @@ function Search-LDAPAndDisable
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
+    } elseif ($warnings -gt 0) {
+        $color = $warningMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($ldapObjectList.Count) warnings. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -2245,15 +2249,17 @@ function Search-LDAPAndEnable
         -Title "About to enable the following object(s):"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
+    $warnings = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $userAccountControlFlags = ConvertFrom-UserAccountControlInteger `
             -UserAccountControlInteger $ldapObject.UserAccountControl
         $disabled = $userAccountControlFlags -contains 'AccountDisabled'
         if (-not $disabled) {
-            $msg = "'$objName' is already enabled"
+            $msg = "'$objName' is already enabled (warning)"
             Write-Log -Message $msg -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor $attentionMessageColor
+            $warnings++
             continue
         } else {
             $userAccountControlNewValue = $ldapObject.UserAccountControl - $adsUserFlagsMap['AccountDisabled']
@@ -2275,8 +2281,10 @@ function Search-LDAPAndEnable
     $color = $happyMessageColor
     if ($failure -gt 0) {
         $color = $rageMessageColor
+    } elseif ($warnings -gt 0) {
+        $color = $warningMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($ldapObjectList.Count) warnings. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
