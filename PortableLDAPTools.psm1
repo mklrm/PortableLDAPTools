@@ -1154,6 +1154,13 @@ function Get-LDAPLogFileList
     }
 }
 
+function Get-LDAPLogContent
+{
+    foreach ($logFileFullName in Get-LDAPLogFileList -Last 1) {
+        Get-Content -Path $logFileFullName
+    }
+}
+
 function Get-LDAPConnectionConfiguration
 {
     if (Test-Path -Path $configFile) {
@@ -1572,12 +1579,20 @@ function Search-LDAPAndSetAttributeValue
         -Title "About to set attribute '$Attribute' to '$Value' on the following object(s):"
     Write-Host "Working" -NoNewline -ForegroundColor $happyMessageColor
     $failures = 0
+    $warnings = 0
     foreach ($ldapObject in $ldapObjectList) {
         $objName = $ldapObject.CanonicalName
         $valName = $Value -join ', '
         $oldValue = $ldapObject.$Attribute -join ', '
         if (-not $oldValue) {
             $oldValue = $ldapObject.attributes.$Attribute -join ', '
+        }
+        if ($oldValue -eq $valName) {
+            $msg = "'$objName' '$Attribute' already set to '$oldValue'"
+            Write-Log -Message $msg -NoEcho
+            Write-Host '.' -NoNewline -ForegroundColor $warningMessageColor
+            $warnings++
+            continue
         }
         try {
             $msg = "'$objName' '$Attribute' is '$oldValue'"
@@ -1599,8 +1614,10 @@ function Search-LDAPAndSetAttributeValue
     $color = $happyMessageColor
     if ($failure -gt 0) {
         $color = $rageMessageColor
+    } elseif ($warnings -gt 0) {
+        $color = $warningMessageColor
     }
-    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
+    Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures and $warnings/$($ldapObjectList.Count) warnings. See $($Script:logFileFullName) for details." `
         -ForegroundColor $color
 }
 
@@ -2293,6 +2310,7 @@ function Search-LDAPAndEnable
 . $PSScriptRoot\classes\LDAPObject.ps1
 
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
+Set-Alias -Name LDAPLog -Value Get-LDAPLogContent
 Set-Alias -Name LDAPGet -Value Search-LDAP
 Set-Alias -Name LDAPGetBy -Value Search-LDAPByAttributeValue
 Set-Alias -Name LDAPGetClass -Value Search-LDAPByObjectClass
