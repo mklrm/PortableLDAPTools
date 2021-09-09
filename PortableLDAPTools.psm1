@@ -78,9 +78,9 @@ function Write-Log
     )
     if (-not (Test-Path -Path $pathScriptFiles)) {
         try {
-            New-Item -Path $pathScriptFiles -ErrorAction Stop | Out-Null
+            New-Item -Path $pathScriptFiles -ItemType Directory -ErrorAction Stop | Out-Null
         } catch {
-            throw "Error creating directory $pathScriptFilesfor for log files: $($_.TroString())"
+            throw "Error creating directory $pathScriptFiles for log files: $($_.TroString())"
         }
     }
     $logFileName = "$scriptFileName-$(Get-Date -Format 'yyyy.MM.dd').log"
@@ -439,6 +439,7 @@ function Send-LDAP
     if ($Request -is [SearchRequest] -and -not $Request.DistinguishedName) {
         $Request.DistinguishedName = $Script:searchbase
     }
+
     try {
         $Script:ldapServer.SendRequest($Request) | ForEach-Object {
             if ($_ -is [AddResponse]) {
@@ -1062,7 +1063,7 @@ function Search-LDAPAndModifyGroupMember
             }                
         }
         $color = $happyMessageColor
-        if ($failure -gt 0) {
+        if ($failures -gt 0) {
             $color = $rageMessageColor
         } elseif ($warnings -gt 0) {
             $color = $warningMessageColor
@@ -1603,7 +1604,6 @@ function Search-LDAPAndSetAttributeValue
             Write-Log -Message $msg -NoEcho
             Write-Host '.' -NoNewline -ForegroundColor $happyMessageColor
         } catch {
-            throw $_
             $err = $_.ToString()
             $msg = "Error setting '$objName' '$Attribute' to '$valName': $err"
             Write-Log -Message $msg -Level Error -NoEcho
@@ -1612,7 +1612,7 @@ function Search-LDAPAndSetAttributeValue
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     } elseif ($warnings -gt 0) {
         $color = $warningMessageColor
@@ -1676,7 +1676,7 @@ function Search-LDAPAndAddAttributeValue
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
@@ -1737,7 +1737,7 @@ function Search-LDAPAndRemoveAttributeValue
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
@@ -1802,7 +1802,7 @@ function Search-LDAPAndClearAttribute
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     } elseif ($warnings -gt 0) {
         $color = $warningMessageColor
@@ -1989,7 +1989,7 @@ function Search-LDAPAndResetPassword
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
@@ -2064,7 +2064,7 @@ function Search-LDAPAndRemove
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     }
     Write-Host "`nDone with $failures/$($ldapObjectList.Count) failures. See $($Script:logFileFullName) for details." `
@@ -2175,7 +2175,7 @@ function Search-LDAPAndMove
     }
     
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     
     }
@@ -2296,7 +2296,7 @@ function Search-LDAPAndEnable
         }
     }
     $color = $happyMessageColor
-    if ($failure -gt 0) {
+    if ($failures -gt 0) {
         $color = $rageMessageColor
     } elseif ($warnings -gt 0) {
         $color = $warningMessageColor
