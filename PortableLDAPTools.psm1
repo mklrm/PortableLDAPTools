@@ -7,7 +7,7 @@ using namespace System.Security.Principal
 
 $objectClassUser = 'organizationalPerson,person,top,user'
 $objectClassComputer = 'computer,organizationalPerson,person,top,user'
-$objectClassGroup = 'group,top'
+$objectClassGroup = 'group,top' # NOTE THIS IS USED IN Get-LDAPGroupMemberRecursive
 $objectClassOrganizationalUnit = 'organizationalUnit,top'
 $objectClassContainer = 'container,top'
 
@@ -229,6 +229,7 @@ function Convert-SearchResultAttributeCollection
             }
 
         if ($psVersionMajor -ge 5) {
+            #New-Object -TypeName LDAPSchemaPoweredObject -ArgumentList $attributeObject
             $objectClass = ($attributeObject.objectclass | Sort-Object) -join ','
             if ($objectClass -eq $objectClassUser) {
                 New-Object -TypeName LDAPUser -ArgumentList $attributeObject
@@ -373,6 +374,14 @@ function Initialize-Configuration
     $Script:userPassword = $activeConfig.userPassword
     $Script:authType = $activeConfig.authType
     $Script:searchbase = $activeConfig.searchbase
+    $Script:SchemaDistinguishedName = $activeConfig.searchbase
+    if ($activeConfig.searchbase -notmatch '^DC=') {
+        $Script:SchemaDistinguishedName = $(($Script:searchbase | Select-String -Pattern ',DC=.*').Matches.Value)
+    }
+    if ($Script:SchemaDistinguishedName -notmatch '^,') {
+        $Script:SchemaDistinguishedName = ",$($Script:SchemaDistinguishedName)"
+    }
+    $Script:SchemaDistinguishedName = "CN=Schema,CN=Configuration$($Script:SchemaDistinguishedName)"
     $Script:pageSize = $activeConfig.pageSize
 }
 
@@ -1180,19 +1189,11 @@ function Get-LDAPConnectionConfiguration
 
 function New-LDAPConnectionConfiguration
 {
-    if (Test-Path -Path $configFile) {
-        $config = Import-Clixml -Path $configFile
-    } else {
-        $config = [PSCustomObject]@{
-            ActiveConfigurationName = $null
-            ConfigurationList = @()
-        }
-        if (-not (Test-Path -Path $pathScriptFiles)) {
-            try {
-                New-Item -Path $pathScriptFiles -ErrorAction Stop | Out-Null
-            } catch {
-                throw "Error creating directory $pathScriptFiles for configuration file: $($_.TroString())"
-            }
+    if (-not (Test-Path -Path $pathScriptFiles)) {
+        try {
+            New-Item -Path $pathScriptFiles -ItemType Directory -ErrorAction Stop | Out-Null
+        } catch {
+            throw "Error creating directory $pathScriptFiles for configuration file: $($_.TroString())"
         }
     }
     Write-Host "Please enter..." -ForegroundColor Green
@@ -2307,6 +2308,7 @@ function Search-LDAPAndEnable
 
 # //EXPORTED FUNCTIONS
 
+# TODO This might not be needed anymore, try removing:
 . $PSScriptRoot\classes\LDAPObject.ps1
 
 Set-Alias -Name LDAPGetLogList -Value Get-LDAPLogFileList
