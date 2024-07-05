@@ -20,7 +20,7 @@ Class LDAPObject
     [String] $objectcategory
     [String[]] $objectclass
     [Guid] $objectguid
-    [Int] $usnchanged
+    [Int64] $usnchanged
     [Int] $usncreated
     [DateTime] $WhenChanged
     [DateTime] $WhenCreated
